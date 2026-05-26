@@ -1,8 +1,0 @@
-# import config
-packagefile internal/abi=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b003\_pkg_.a
-packagefile internal/asan=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b017\_pkg_.a
-packagefile internal/goarch=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b001\_pkg_.a
-packagefile internal/msan=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b018\_pkg_.a
-packagefile internal/race=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b019\_pkg_.a
-packagefile internal/runtime/math=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b020\_pkg_.a
-packagefile internal/runtime/sys=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b021\_pkg_.a
