@@ -1,0 +1,14 @@
+# import config
+packagefile errors=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b028\_pkg_.a
+packagefile internal/asan=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b017\_pkg_.a
+packagefile internal/bytealg=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b006\_pkg_.a
+packagefile internal/itoa=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b042\_pkg_.a
+packagefile internal/msan=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b018\_pkg_.a
+packagefile internal/oserror=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b043\_pkg_.a
+packagefile internal/race=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b019\_pkg_.a
+packagefile internal/syscall/windows/sysdll=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b041\_pkg_.a
+packagefile runtime=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b026\_pkg_.a
+packagefile sync=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b032\_pkg_.a
+packagefile sync/atomic=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b029\_pkg_.a
+packagefile unicode/utf16=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b044\_pkg_.a
+packagefile unicode/utf8=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b037\_pkg_.a

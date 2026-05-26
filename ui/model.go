@@ -184,7 +184,7 @@ func New(client api.ClientInterface, cfg *api.Config) Model {
 		delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 			BorderForeground(lipgloss.Color("62")).
 			Foreground(lipgloss.Color("62"))
-		delegate.Styles.SelectedDesc = delegate.Styles.SelectedTitle.Copy().
+		delegate.Styles.SelectedDesc = delegate.Styles.SelectedTitle.
 			Foreground(lipgloss.Color("245"))
 	}
 

@@ -26,7 +26,7 @@ func NewLogger(logPath string, level slog.Level) (*Logger, error) {
 		return noop, fmt.Errorf("logger: failed to create log directory: %w", err)
 	}
 
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		noop := NoopLogger()
 		return noop, fmt.Errorf("logger: failed to open log file: %w", err)

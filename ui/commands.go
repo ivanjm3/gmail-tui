@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/rdx40/gmail-tui/api"
@@ -184,12 +183,5 @@ func notifyTimed(msg string) tea.Cmd {
 	return tea.Batch(
 		notify(msg),
 		clearStatusAfter(3*time.Second),
-	)
-}
-
-func errNotify(err error) tea.Cmd {
-	return tea.Batch(
-		func() tea.Msg { return statusMsg{message: fmt.Sprintf("Error: %v", err)} },
-		clearStatusAfter(5*time.Second),
 	)
 }

@@ -215,7 +215,7 @@ func (c *Client) DownloadAttachment(msgID, attachmentID, filename string) (strin
 	}
 
 	// 7. Write file.
-	if err := os.WriteFile(absPath, data, 0644); err != nil {
+	if err := os.WriteFile(absPath, data, 0600); err != nil {
 		return "", fmt.Errorf("save failed: %w", err)
 	}
 

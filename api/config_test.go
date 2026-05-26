@@ -136,7 +136,7 @@ func writeConfigFile(t *testing.T, home, contents string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 }

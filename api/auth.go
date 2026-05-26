@@ -19,7 +19,7 @@ import (
 
 const (
 	credentialsFile = "credentials.json"
-	tokenFileName   = ".gmail-tui-token.json"
+	tokenFileName   = ".gmail-tui-token.json" // #nosec G101
 )
 
 // checkGitignore warns if credentials.json is not listed in .gitignore.

@@ -34,7 +34,7 @@ func TestValidateEmailAddresses(t *testing.T) {
 func TestValidateAttachmentPath(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "file.txt")
-	if err := os.WriteFile(filePath, []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte("content"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestValidateAttachmentPath(t *testing.T) {
 func TestValidateAttachmentSize(t *testing.T) {
 	tempDir := t.TempDir()
 	smallPath := filepath.Join(tempDir, "small.txt")
-	if err := os.WriteFile(smallPath, []byte("small"), 0644); err != nil {
+	if err := os.WriteFile(smallPath, []byte("small"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	smallInfo, err := os.Stat(smallPath)

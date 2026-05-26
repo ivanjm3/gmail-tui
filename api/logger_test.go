@@ -41,7 +41,7 @@ func TestNewLoggerWritesJSONLogs(t *testing.T) {
 
 func TestNewLoggerFallsBackToNoop(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "not-a-dir")
-	if err := os.WriteFile(base, []byte("file"), 0644); err != nil {
+	if err := os.WriteFile(base, []byte("file"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 

@@ -108,7 +108,7 @@ func TestDownloadAttachmentKeepsPathWithinDownloadsDir(t *testing.T) {
 	t.Parallel()
 
 	downloadsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(downloadsDir, "report.pdf"), []byte("existing"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(downloadsDir, "report.pdf"), []byte("existing"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestWriteAttachment(t *testing.T) {
 
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "file.txt")
-	if err := os.WriteFile(filePath, []byte("hello"), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte("hello"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 

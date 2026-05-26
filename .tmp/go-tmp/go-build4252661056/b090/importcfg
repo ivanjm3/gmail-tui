@@ -1,0 +1,9 @@
+# import config
+packagefile internal/abi=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b003\_pkg_.a
+packagefile internal/goarch=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b001\_pkg_.a
+packagefile internal/stringslite=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b024\_pkg_.a
+packagefile internal/sync=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b030\_pkg_.a
+packagefile runtime=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b026\_pkg_.a
+packagefile sync=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b032\_pkg_.a
+packagefile sync/atomic=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b029\_pkg_.a
+packagefile weak=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b089\_pkg_.a

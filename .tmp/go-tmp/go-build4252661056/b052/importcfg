@@ -1,0 +1,17 @@
+# import config
+packagefile errors=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b028\_pkg_.a
+packagefile internal/abi=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b003\_pkg_.a
+packagefile internal/bytealg=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b006\_pkg_.a
+packagefile internal/goarch=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b001\_pkg_.a
+packagefile internal/itoa=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b042\_pkg_.a
+packagefile internal/race=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b019\_pkg_.a
+packagefile internal/runtime/maps=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b022\_pkg_.a
+packagefile internal/runtime/sys=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b021\_pkg_.a
+packagefile internal/unsafeheader=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b004\_pkg_.a
+packagefile iter=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b034\_pkg_.a
+packagefile math=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b050\_pkg_.a
+packagefile runtime=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b026\_pkg_.a
+packagefile strconv=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b051\_pkg_.a
+packagefile sync=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b032\_pkg_.a
+packagefile unicode=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b036\_pkg_.a
+packagefile unicode/utf8=C:\Users\Ivan\OneDrive\Desktop\gmail-tui\.tmp\go-tmp\go-build4252661056\b037\_pkg_.a

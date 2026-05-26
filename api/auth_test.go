@@ -26,7 +26,7 @@ func TestCheckGitignore(t *testing.T) {
 	}
 
 	logs.Reset()
-	if err := os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte("credentials.json\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, ".gitignore"), []byte("credentials.json\n"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	withWorkingDir(t, tempDir, func() {
@@ -47,7 +47,7 @@ func TestLoadOAuthConfig(t *testing.T) {
 			"auth_uri": "https://accounts.google.com/o/oauth2/auth",
 			"token_uri": "https://oauth2.googleapis.com/token"
 		}
-	}`), 0644); err != nil {
+	}`), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestLoadOAuthConfigMissingFile(t *testing.T) {
 
 func TestLoadOAuthConfigInvalidJSON(t *testing.T) {
 	credentialsPath := filepath.Join(t.TempDir(), "credentials.json")
-	if err := os.WriteFile(credentialsPath, []byte(`REPLACE_WITH_THINE`), 0644); err != nil {
+	if err := os.WriteFile(credentialsPath, []byte(`REPLACE_WITH_THINE`), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestSaveTokenAndLoadToken(t *testing.T) {
 
 func TestLoadTokenCorruptedFileRemovesIt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token.json")
-	if err := os.WriteFile(path, []byte("not-json"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestPerformOAuthFlow(t *testing.T) {
 	}
 
 	inputPath := filepath.Join(t.TempDir(), "stdin.txt")
-	if err := os.WriteFile(inputPath, []byte("auth-code\n"), 0644); err != nil {
+	if err := os.WriteFile(inputPath, []byte("auth-code\n"), 0600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
