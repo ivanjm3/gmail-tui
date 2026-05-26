@@ -48,10 +48,10 @@
    export GMAIL_TUI_CREDENTIALS=/path/to/credentials.json
    ```
 
-4. Run the application.
+4. Build the application and run it.
 
    ```bash
-   go run .
+   go build . && ./gmail-tui.exe or ./gmail-tui
    ```
 
 5. On first launch, open the authorization URL shown in the terminal, grant access, and paste the returned code back into the app.
