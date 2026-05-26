@@ -15,7 +15,10 @@ type Email struct {
 	Labels      []string
 	IsUnread    bool
 	Attachments []Attachment
-	FullLoaded  bool // true when body+attachments have been fetched
+	FullLoaded  bool   // true when body+attachments have been fetched
+	MessageID   string // value of Message-ID header (for reply threading)
+	References  string // value of References header (for reply threading)
+	InReplyTo   string // value of In-Reply-To header
 }
 
 // Attachment represents an email attachment.

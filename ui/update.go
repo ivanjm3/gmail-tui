@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,14 +27,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inboxLoadedMsg:
 		m.emailList.SetItems(emailsToItems(msg.emails))
+		m.totalFetched = len(msg.emails)
 		m.state = stateInbox
+		return m, nil
+
+	case nextPageLoadedMsg:
+		m.emailList.SetItems(emailsToItems(msg.emails))
+		m.pageToken = msg.nextToken
+		m.totalFetched += len(msg.emails)
+		m.state = stateInbox
+		return m, nil
+
+	case userProfileLoadedMsg:
+		m.userEmail = msg.email
 		return m, nil
 
 	case emailOpenedMsg:
 		m.currentEmail = msg.email
 		m.state = stateViewing
 		m.viewport.Width = m.width
-		m.viewport.Height = m.height - 7
+		vpHeight := m.height - 7
+		if vpHeight < 1 {
+			vpHeight = 1
+		}
+		m.viewport.Height = vpHeight
 		m.viewport.SetContent(msg.email.Body)
 		m.viewport.GotoTop()
 		return m, nil
@@ -43,7 +58,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case emailSentMsg:
 		m.state = stateLoading
 		m.statusMessage = "Email sent!"
-		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client), clearStatusAfter(3*time.Second))
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
 
 	case emailDeletedMsg:
 		items := m.emailList.Items()
@@ -81,6 +96,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case searchResultMsg:
+		if len(msg.emails) == 0 && msg.query != "" {
+			m.emailList.SetItems(emailsToItems([]api.Email{}))
+			m.state = stateInbox
+			m.statusMessage = fmt.Sprintf("No results found for: %s", msg.query)
+			return m, clearStatusAfter(5 * time.Second)
+		}
 		m.emailList.SetItems(emailsToItems(msg.emails))
 		m.state = stateInbox
 		return m, nil
@@ -109,19 +130,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
-	m.width = msg.Width
-	m.height = msg.Height
-	m.help.Width = msg.Width
-
-	switch m.state {
-	case stateInbox:
-		m.emailList.SetSize(msg.Width, msg.Height-3)
-	case stateViewing:
-		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - 7
-	case stateLabels:
-		m.labelList.SetSize(msg.Width, msg.Height-3)
+	w := msg.Width
+	h := msg.Height
+	if w < 1 {
+		w = 1
 	}
+	if h < 1 {
+		h = 1
+	}
+	m.width = w
+	m.height = h
+	m.help.Width = w
+
+	// Set sizes for all components so they are ready when state changes
+	m.emailList.SetSize(w, h-3)
+	m.labelList.SetSize(w, h-3)
+
+	vpHeight := h - 7
+	if vpHeight < 1 {
+		vpHeight = 1
+	}
+	m.viewport.Width = w
+	m.viewport.Height = vpHeight
+
 	return m, nil
 }
 
@@ -165,14 +196,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Compose):
+		if !m.client.HasSendScope() {
+			return m, notifyTimed("Compose disabled: Gmail send scope not granted")
+		}
 		m.state = stateComposing
 		m.isReply = false
-		m.compose.reset("me")
+		m.confirmNoSubject = false
+		m.compose.reset(m.userEmail)
 		return m, m.compose.focusField()
 
 	case key.Matches(msg, keys.Search):
 		m.state = stateSearching
-		m.searchInput.SetValue("")
+		m.searchInput.SetValue(m.lastQuery)
 		m.searchInput.Focus()
 		return m, nil
 
@@ -203,6 +238,26 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ei, ok := m.emailList.SelectedItem().(emailItem); ok {
 			return m, toggleReadCmd(m.client, ei.email.ID, ei.email.IsUnread)
 		}
+
+	case key.Matches(msg, keys.NextPage):
+		if m.pageToken == "" {
+			m.statusMessage = "No more emails"
+			return m, clearStatusAfter(2 * time.Second)
+		}
+		m.pageHistory = append(m.pageHistory, m.pageToken)
+		m.currentPage++
+		m.state = stateLoading
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), m.pageToken))
+
+	case key.Matches(msg, keys.PrevPage):
+		if len(m.pageHistory) == 0 {
+			return m, nil
+		}
+		last := m.pageHistory[len(m.pageHistory)-1]
+		m.pageHistory = m.pageHistory[:len(m.pageHistory)-1]
+		m.currentPage--
+		m.state = stateLoading
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), last))
 	}
 
 	var cmd tea.Cmd
@@ -218,6 +273,9 @@ func (m Model) updateViewing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Reply):
+		if !m.client.HasSendScope() {
+			return m, notifyTimed("Reply disabled: Gmail send scope not granted")
+		}
 		m.state = stateReplying
 		m.replyTo = m.currentEmail
 		m.replyBody.Reset()
@@ -258,6 +316,35 @@ func (m Model) updateViewing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateComposing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle discard confirmation first
+	if m.confirmDiscard {
+		switch msg.String() {
+		case "y", "Y":
+			m.confirmDiscard = false
+			m.state = stateInbox
+			return m, nil
+		case "n", "N":
+			m.confirmDiscard = false
+			m.statusMessage = ""
+			return m, nil
+		}
+		return m, nil
+	}
+
+	if m.confirmNoSubject {
+		switch msg.String() {
+		case "y", "Y":
+			m.confirmNoSubject = false
+			m.statusMessage = ""
+			return m, m.composeSendCmd()
+		case "n", "N":
+			m.confirmNoSubject = false
+			m.statusMessage = ""
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch {
 	case msg.Type == tea.KeyEsc:
 		if m.compose.addingAttach {
@@ -265,19 +352,33 @@ func (m Model) updateComposing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.compose.attachInput.Reset()
 			return m, m.compose.focusField()
 		}
+		// Check if any field has content before discarding
+		hasContent := m.compose.to.Value() != "" ||
+			m.compose.subject.Value() != "" ||
+			m.compose.body.Value() != "" ||
+			len(m.compose.attachments) > 0
+		if hasContent {
+			m.confirmDiscard = true
+			m.statusMessage = "Discard draft? [y/n]"
+			return m, nil
+		}
 		m.state = stateInbox
 		return m, nil
 
 	case key.Matches(msg, keys.Send):
-		return m, sendEmailCmd(
-			m.client,
+		if err := validateComposeRecipients(
 			m.compose.to.Value(),
 			m.compose.cc.Value(),
 			m.compose.bcc.Value(),
-			m.compose.subject.Value(),
-			m.compose.body.Value(),
-			m.compose.attachments,
-		)
+		); err != nil {
+			return m, errorCmd(err)
+		}
+		if strings.TrimSpace(m.compose.subject.Value()) == "" {
+			m.confirmNoSubject = true
+			m.statusMessage = "Send with no subject? [y/n]"
+			return m, nil
+		}
+		return m, m.composeSendCmd()
 
 	case key.Matches(msg, keys.AddAttachment):
 		if !m.compose.addingAttach {
@@ -324,22 +425,13 @@ func (m Model) updateReplying(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Send):
-		quoted := fmt.Sprintf(
-			"\n\n--- Original Message ---\nFrom: %s\nDate: %s\n\n%s",
-			m.replyTo.From, m.replyTo.Date,
-			api.IndentText(m.currentEmail.Body),
-		)
-		subject := m.replyTo.Subject
-		if !strings.HasPrefix(strings.ToLower(subject), "re:") {
-			subject = "Re: " + subject
+		if m.replyTo == nil {
+			return m, errorCmd(fmt.Errorf("reply target is missing"))
 		}
-		return m, sendEmailCmd(
-			m.client,
-			m.replyTo.From, "", "",
-			subject,
-			m.replyBody.Value()+quoted,
-			m.replyAttachments,
-		)
+		if invalid, ok := api.ValidateEmailAddresses(m.replyTo.From); !ok {
+			return m, errorCmd(fmt.Errorf("invalid email address: %s", invalid))
+		}
+		return m, m.replySendCmd()
 
 	case key.Matches(msg, keys.AddAttachment):
 		m.addingAttach = true
@@ -358,13 +450,13 @@ func (m Model) updateReplying(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if path == "" {
 			return m, nil
 		}
-		if _, err := os.Stat(path); err == nil {
-			m.replyAttachments = append(m.replyAttachments, path)
-			m.addingAttach = false
-			m.attachInput.Reset()
-			return m, notify(fmt.Sprintf("Added: %s", filepath.Base(path)))
+		if err := validateAttachment(path); err != nil {
+			return m, errorCmd(err)
 		}
-		return m, notify(fmt.Sprintf("File not found: %s", path))
+		m.replyAttachments = append(m.replyAttachments, path)
+		m.addingAttach = false
+		m.attachInput.Reset()
+		return m, notify(fmt.Sprintf("Added: %s", filepath.Base(path)))
 	}
 
 	var cmd tea.Cmd
@@ -387,8 +479,9 @@ func (m Model) updateSearching(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if q == "" {
 			return m, nil
 		}
+		m.lastQuery = q
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, searchCmd(m.client, q))
+		return m, tea.Batch(m.spinner.Tick, searchCmd(m.client, q, int64(m.config.SearchMaxResults)))
 	}
 
 	var cmd tea.Cmd
@@ -405,7 +498,7 @@ func (m Model) updateLabels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Select):
 		if li, ok := m.labelList.SelectedItem().(labelItem); ok {
 			m.state = stateLoading
-			return m, tea.Batch(m.spinner.Tick, fetchByLabelCmd(m.client, li.label.ID))
+			return m, tea.Batch(m.spinner.Tick, fetchByLabelCmd(m.client, li.label.ID, int64(m.config.MaxResults)))
 		}
 	}
 
@@ -454,16 +547,16 @@ func (m Model) handleComposeAttach() (tea.Model, tea.Cmd) {
 	if path == "" {
 		return m, nil
 	}
-	if _, err := os.Stat(path); err == nil {
-		m.compose.attachments = append(m.compose.attachments, path)
-		m.compose.addingAttach = false
-		m.compose.attachInput.Reset()
-		return m, tea.Batch(
-			m.compose.focusField(),
-			notify(fmt.Sprintf("Added: %s", filepath.Base(path))),
-		)
+	if err := validateAttachment(path); err != nil {
+		return m, errorCmd(err)
 	}
-	return m, notify(fmt.Sprintf("File not found: %s", path))
+	m.compose.attachments = append(m.compose.attachments, path)
+	m.compose.addingAttach = false
+	m.compose.attachInput.Reset()
+	return m, tea.Batch(
+		m.compose.focusField(),
+		notify(fmt.Sprintf("Added: %s", filepath.Base(path))),
+	)
 }
 
 func (m Model) updateComposeInputs(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -515,4 +608,68 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
+}
+
+func (m Model) composeSendCmd() tea.Cmd {
+	return sendEmailCmd(
+		m.client,
+		m.compose.to.Value(),
+		m.compose.cc.Value(),
+		m.compose.bcc.Value(),
+		m.compose.subject.Value(),
+		m.compose.body.Value(),
+		m.compose.attachments,
+	)
+}
+
+func (m Model) replySendCmd() tea.Cmd {
+	quoted := fmt.Sprintf(
+		"\n\n--- Original Message ---\nFrom: %s\nDate: %s\n\n%s",
+		m.replyTo.From,
+		m.replyTo.Date,
+		api.IndentText(m.currentEmail.Body),
+	)
+	return sendReplyCmd(
+		m.client,
+		m.replyTo.From,
+		formatReplySubject(m.replyTo.Subject),
+		m.replyBody.Value()+quoted,
+		m.replyTo.MessageID,
+		m.replyTo.References,
+		m.replyAttachments,
+	)
+}
+
+func validateComposeRecipients(to, cc, bcc string) error {
+	if strings.TrimSpace(to) == "" {
+		return fmt.Errorf("recipient address is required")
+	}
+	for _, field := range []string{to, cc, bcc} {
+		if invalid, ok := api.ValidateEmailAddresses(field); !ok {
+			return fmt.Errorf("invalid email address: %s", invalid)
+		}
+	}
+	return nil
+}
+
+func validateAttachment(path string) error {
+	info, err := api.ValidateAttachmentPath(path)
+	if err != nil {
+		return err
+	}
+	return api.ValidateAttachmentSize(info)
+}
+
+func formatReplySubject(subject string) string {
+	trimmed := strings.TrimSpace(subject)
+	if strings.HasPrefix(strings.ToLower(trimmed), "re:") {
+		return "Re: " + strings.TrimSpace(trimmed[3:])
+	}
+	return "Re: " + trimmed
+}
+
+func errorCmd(err error) tea.Cmd {
+	return func() tea.Msg {
+		return errMsg{err: err}
+	}
 }

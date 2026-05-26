@@ -1,0 +1,25 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - gosec
+    - gofmt
+    - goimports
+    - misspell
+    - unused
+    - revive
+
+issues:
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+linters-settings:
+  revive:
+    severity: warning

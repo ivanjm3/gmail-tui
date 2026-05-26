@@ -3,11 +3,13 @@ module github.com/rdx40/gmail-tui
 go 1.23.3
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/lipgloss v1.1.0
 	golang.org/x/oauth2 v0.30.0
 	google.golang.org/api v0.235.0
+	pgregory.net/rapid v0.0.0
 )
 
 require (
@@ -52,3 +54,5 @@ require (
 	google.golang.org/grpc v1.72.1 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
+
+replace pgregory.net/rapid => ./third_party/rapid

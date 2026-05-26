@@ -23,6 +23,8 @@ type keyMap struct {
 	AddAttachment      key.Binding
 	RemoveAttachment   key.Binding
 	DownloadAttachment key.Binding
+	NextPage           key.Binding
+	PrevPage           key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -35,6 +37,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Delete, k.ToggleRead, k.Back, k.Quit},
 		{k.Send, k.NextInput, k.PrevInput},
 		{k.AddAttachment, k.RemoveAttachment, k.DownloadAttachment},
+		{k.NextPage, k.PrevPage},
 	}
 }
 
@@ -58,4 +61,6 @@ var keys = keyMap{
 	AddAttachment:      key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "add attachment")),
 	RemoveAttachment:   key.NewBinding(key.WithKeys("ctrl+x"), key.WithHelp("ctrl+x", "remove attachment")),
 	DownloadAttachment: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "download attachment")),
+	NextPage:           key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next page")),
+	PrevPage:           key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "prev page")),
 }

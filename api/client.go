@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"log"
 	"mime"
 	"mime/multipart"
 	"net/textproto"
@@ -19,24 +18,29 @@ import (
 )
 
 const (
-	maxConcurrent     = 5
 	maxAttachmentSize = 25 * 1024 * 1024
-	downloadsDir      = "downloads"
 )
 
 // Client wraps the Gmail API with caching and concurrent fetching.
 type Client struct {
-	srv   *gmail.Service
-	cache sync.Map // map[string]*Email
+	srv    *gmail.Service
+	cache  *lruCache
+	cfg    *Config
+	logger *Logger
 }
 
 // NewClient authenticates and returns a ready-to-use Client.
-func NewClient() (*Client, error) {
+func NewClient(cfg *Config, logger *Logger) (*Client, error) {
 	srv, err := newGmailService()
 	if err != nil {
 		return nil, err
 	}
-	return &Client{srv: srv}, nil
+	return &Client{
+		srv:    srv,
+		cache:  newLRUCache(cfg.CacheMaxSize),
+		cfg:    cfg,
+		logger: logger,
+	}, nil
 }
 
 // ---------- read operations ----------
@@ -59,8 +63,8 @@ func (c *Client) FetchByLabel(labelID string, max int64) ([]Email, error) {
 // FetchEmail returns a fully-loaded email (body + attachments).
 // Returns from cache if already fully loaded.
 func (c *Client) FetchEmail(id string) (*Email, error) {
-	if v, ok := c.cache.Load(id); ok {
-		if e := v.(*Email); e.FullLoaded {
+	if e, ok := c.cache.Load(id); ok {
+		if e.FullLoaded {
 			return e, nil
 		}
 	}
@@ -79,7 +83,7 @@ func (c *Client) FetchEmail(id string) (*Email, error) {
 func (c *Client) FetchLabels() ([]Label, error) {
 	resp, err := c.srv.Users.Labels.List("me").Do()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetchLabels: %w", err)
 	}
 	if resp == nil {
 		return []Label{}, nil
@@ -96,10 +100,11 @@ func (c *Client) FetchLabels() ([]Label, error) {
 // DeleteEmail moves an email to trash and removes it from cache.
 func (c *Client) DeleteEmail(id string) error {
 	_, err := c.srv.Users.Messages.Trash("me", id).Do()
-	if err == nil {
-		c.cache.Delete(id)
+	if err != nil {
+		return fmt.Errorf("deleteEmail: %w", err)
 	}
-	return err
+	c.cache.Delete(id)
+	return nil
 }
 
 // ToggleRead flips the UNREAD label. Returns the new isUnread state.
@@ -113,12 +118,11 @@ func (c *Client) ToggleRead(id string, currentlyUnread bool) (newUnread bool, er
 
 	_, err = c.srv.Users.Messages.Modify("me", id, mod).Do()
 	if err != nil {
-		return currentlyUnread, err
+		return currentlyUnread, fmt.Errorf("toggleRead: %w", err)
 	}
 
 	newUnread = !currentlyUnread
-	if v, ok := c.cache.Load(id); ok {
-		e := v.(*Email)
+	if e, ok := c.cache.Load(id); ok {
 		e.IsUnread = newUnread
 	}
 	return newUnread, nil
@@ -164,31 +168,144 @@ func (c *Client) SendEmail(to, cc, bcc, subject, body string, attachments []stri
 
 	raw := base64.URLEncoding.EncodeToString(msg.Bytes())
 	_, err = c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
-	return err
+	if err != nil {
+		return fmt.Errorf("sendEmail: %w", err)
+	}
+	return nil
 }
 
 // DownloadAttachment saves an attachment to the downloads directory.
+// It sanitizes the filename, deduplicates against existing files, and guards
+// against path traversal before writing.
 func (c *Client) DownloadAttachment(msgID, attachmentID, filename string) (string, error) {
+	// 1. Fetch attachment data.
 	att, err := c.srv.Users.Messages.Attachments.Get("me", msgID, attachmentID).Do()
 	if err != nil {
 		return "", fmt.Errorf("download failed: %w", err)
 	}
 
-	data, err := base64.RawURLEncoding.DecodeString(att.Data)
+	// 2. Decode base64.
+	data, err := decodeBase64Robust(att.Data)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode: %w", err)
 	}
 
-	if err := os.MkdirAll(downloadsDir, 0755); err != nil {
+	// 3. Create downloads directory.
+	if err := os.MkdirAll(c.cfg.DownloadsDir, 0755); err != nil {
 		return "", fmt.Errorf("couldn't create downloads directory: %w", err)
 	}
 
-	path := filepath.Join(downloadsDir, sanitizeFilename(filename))
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// 4. Sanitize filename.
+	safe := sanitizeFilename(filename)
+
+	// 5. Compute unique path (no overwrite).
+	path := uniqueFilePath(c.cfg.DownloadsDir, safe)
+
+	// 6. Verify path stays within downloads dir (traversal guard).
+	absDownloads, err := filepath.Abs(c.cfg.DownloadsDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve downloads dir: %w", err)
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve download path: %w", err)
+	}
+	if !strings.HasPrefix(absPath, absDownloads+string(filepath.Separator)) {
+		return "", fmt.Errorf("download path escapes downloads directory: %s", absPath)
+	}
+
+	// 7. Write file.
+	if err := os.WriteFile(absPath, data, 0644); err != nil {
 		return "", fmt.Errorf("save failed: %w", err)
 	}
 
-	return path, nil
+	// 8. Return absolute path.
+	return absPath, nil
+}
+
+// FetchInboxPage returns a page of inbox emails along with the next page token.
+func (c *Client) FetchInboxPage(query string, max int64, pageToken string) ([]Email, string, error) {
+	call := c.srv.Users.Messages.List("me").MaxResults(max).Q(query)
+	if pageToken != "" {
+		call = call.PageToken(pageToken)
+	}
+	resp, err := call.Do()
+	if err != nil {
+		return nil, "", fmt.Errorf("fetchInboxPage: %w", err)
+	}
+	if resp == nil || len(resp.Messages) == 0 {
+		return []Email{}, "", nil
+	}
+	emails := c.fetchConcurrently(resp.Messages)
+	return emails, resp.NextPageToken, nil
+}
+
+// GetUserProfile returns the authenticated user's email address.
+func (c *Client) GetUserProfile() (string, error) {
+	profile, err := c.srv.Users.GetProfile("me").Do()
+	if err != nil {
+		return "", fmt.Errorf("getUserProfile: %w", err)
+	}
+	return profile.EmailAddress, nil
+}
+
+// SendReply sends a reply to an existing email thread, setting the appropriate
+// In-Reply-To and References headers for proper threading.
+func (c *Client) SendReply(to, subject, body, inReplyTo, references string, attachments []string) error {
+	var mimeBody bytes.Buffer
+	writer := multipart.NewWriter(&mimeBody)
+
+	textHeader := textproto.MIMEHeader{}
+	textHeader.Set("Content-Type", "text/plain; charset=utf-8")
+	textPart, err := writer.CreatePart(textHeader)
+	if err != nil {
+		return fmt.Errorf("sendReply: failed to create text part: %w", err)
+	}
+	if _, err := textPart.Write([]byte(body)); err != nil {
+		return fmt.Errorf("sendReply: failed to write body: %w", err)
+	}
+
+	for _, fp := range attachments {
+		if err := writeAttachment(writer, fp); err != nil {
+			return err
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("sendReply: failed to close writer: %w", err)
+	}
+
+	var msg bytes.Buffer
+	fmt.Fprintf(&msg, "To: %s\r\n", to)
+	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
+	if inReplyTo != "" {
+		fmt.Fprintf(&msg, "In-Reply-To: %s\r\n", inReplyTo)
+	}
+	if references != "" {
+		fmt.Fprintf(&msg, "References: %s\r\n", references)
+	}
+	fmt.Fprintf(&msg, "MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&msg, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", writer.Boundary())
+	msg.Write(mimeBody.Bytes())
+
+	raw := base64.URLEncoding.EncodeToString(msg.Bytes())
+	_, err = c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
+	if err != nil {
+		return fmt.Errorf("sendReply: %w", err)
+	}
+	return nil
+}
+
+// CacheSize returns the number of emails currently held in the cache.
+func (c *Client) CacheSize() int {
+	return c.cache.Size()
+}
+
+// HasSendScope reports whether the client was authorized with the send scope.
+// The current implementation always returns true; this will be updated when
+// scope reduction (Req 2) is implemented.
+func (c *Client) HasSendScope() bool {
+	return true
 }
 
 // ---------- internal ----------
@@ -205,7 +322,7 @@ func (c *Client) fetchList(query, labelID string, max int64) ([]Email, error) {
 
 	resp, err := call.Do()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetchList: %w", err)
 	}
 	if resp == nil || len(resp.Messages) == 0 {
 		return []Email{}, nil
@@ -219,7 +336,7 @@ func (c *Client) fetchList(query, labelID string, max int64) ([]Email, error) {
 func (c *Client) fetchConcurrently(messages []*gmail.Message) []Email {
 	results := make([]*Email, len(messages))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, maxConcurrent)
+	sem := make(chan struct{}, c.cfg.MaxConcurrent)
 
 	for i, m := range messages {
 		wg.Add(1)
@@ -230,10 +347,10 @@ func (c *Client) fetchConcurrently(messages []*gmail.Message) []Email {
 
 			msg, err := c.srv.Users.Messages.Get("me", id).
 				Format("metadata").
-				MetadataHeaders("Subject", "From", "Date", "To", "Cc", "Bcc").
+				MetadataHeaders("Subject", "From", "Date", "To", "Cc", "Bcc", "Message-ID", "References", "In-Reply-To").
 				Do()
 			if err != nil {
-				log.Printf("Error fetching message %s: %v", id, err)
+				c.logger.Error("failed to fetch message", "id", id, "error", err)
 				return
 			}
 			email := parseMessage(msg, false)
@@ -254,20 +371,9 @@ func (c *Client) fetchConcurrently(messages []*gmail.Message) []Email {
 	return emails
 }
 
-// cacheStore inserts or updates an email in cache.
-// Never overwrites a full entry with a metadata-only entry.
+// cacheStore inserts or updates an email in the lruCache.
 func (c *Client) cacheStore(email *Email) {
-	if v, ok := c.cache.Load(email.ID); ok {
-		existing := v.(*Email)
-		if existing.FullLoaded && !email.FullLoaded {
-			// Just refresh mutable fields.
-			existing.IsUnread = email.IsUnread
-			existing.Labels = email.Labels
-			return
-		}
-	}
-	cp := *email
-	c.cache.Store(email.ID, &cp)
+	c.cache.Store(email)
 }
 
 func writeAttachment(writer *multipart.Writer, filePath string) error {
@@ -306,11 +412,66 @@ func writeAttachment(writer *multipart.Writer, filePath string) error {
 }
 
 func sanitizeFilename(name string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || unicode.IsLetter(r) || unicode.IsNumber(r) ||
-			r == '-' || r == '_' || r == '.' {
+	// Strip path separators and traversal sequences.
+	name = filepath.Base(name)
+	// filepath.Base returns "." for empty string; normalize to empty.
+	if name == "." {
+		name = "unnamed"
+	}
+	// Remove any remaining ".." sequences.
+	name = strings.ReplaceAll(name, "..", "_")
+	// Allow only safe characters.
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) ||
+			r == '-' || r == '_' || r == '.' || r == ' ' {
 			return r
 		}
 		return '_'
 	}, name)
+	if strings.TrimSpace(name) == "" {
+		return "unnamed"
+	}
+	return name
+}
+
+// uniqueFilePath returns a path that does not yet exist by appending (N) before the extension.
+func uniqueFilePath(dir, filename string) string {
+	path := filepath.Join(dir, filename)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return path
+	}
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	for i := 1; i <= 9999; i++ {
+		candidate := filepath.Join(dir, fmt.Sprintf("%s(%d)%s", base, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return path // fallback: overwrite if somehow all 9999 slots taken
+}
+
+func decodeBase64Robust(s string) ([]byte, error) {
+	// 1. Remove whitespace (common source of "illegal base64 data")
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, s)
+
+	// 2. Try URL-safe decoding (Gmail standard)
+	// Try both Raw and Padded
+	if data, err := base64.URLEncoding.DecodeString(s); err == nil {
+		return data, nil
+	}
+	if data, err := base64.RawURLEncoding.DecodeString(s); err == nil {
+		return data, nil
+	}
+
+	// 3. Fallback to standard base64
+	if data, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return data, nil
+	}
+	return base64.RawStdEncoding.DecodeString(s)
 }

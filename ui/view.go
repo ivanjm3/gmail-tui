@@ -48,6 +48,13 @@ func (m Model) statusBar() string {
 	if m.statusMessage == "" {
 		return ""
 	}
+	if m.noStyle {
+		prefix := ""
+		if strings.HasPrefix(m.statusMessage, "Error:") {
+			prefix = "[ERROR] "
+		}
+		return "\n" + prefix + m.statusMessage + "\n"
+	}
 	s := statusStyle
 	if strings.HasPrefix(m.statusMessage, "Error:") {
 		s = errorStyle
@@ -56,6 +63,9 @@ func (m Model) statusBar() string {
 }
 
 func (m Model) loadingView() string {
+	if m.noStyle {
+		return m.spinner.View() + " Loading...\n"
+	}
 	return lipgloss.Place(
 		m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
@@ -64,7 +74,11 @@ func (m Model) loadingView() string {
 }
 
 func (m Model) inboxView() string {
-	help := "\n[c] compose • [d] delete • [m] mark read/unread • [l] labels • [/] search • [?] help • [q] quit\n"
+	pageInfo := fmt.Sprintf("Page %d", m.currentPage)
+	if m.totalFetched > 0 {
+		pageInfo = fmt.Sprintf("Page %d • %d emails", m.currentPage, m.totalFetched)
+	}
+	help := fmt.Sprintf("\n[c] compose • [d] delete • [m] mark read/unread • [l] labels • [/] search • [n] next • [p] prev • [?] help • [q] quit  %s\n", pageInfo)
 	return m.emailList.View() + m.statusBar() + help
 }
 
@@ -103,16 +117,30 @@ func (m Model) emailView() string {
 	return b.String()
 }
 
+// fieldLabel returns a label with a focus indicator for the compose form.
+func fieldLabel(focused int, idx int, label string) string {
+	if focused == idx {
+		return "▶ " + label + ":"
+	}
+	return "  " + label + ":"
+}
+
 func (m Model) composeView() string {
 	var b strings.Builder
 
 	b.WriteString("\n  Compose New Email\n\n")
-	b.WriteString(fmt.Sprintf("  From: %s\n", m.compose.from.View()))
-	b.WriteString(fmt.Sprintf("  To:   %s\n", m.compose.to.View()))
-	b.WriteString(fmt.Sprintf("  CC:   %s\n", m.compose.cc.View()))
-	b.WriteString(fmt.Sprintf("  BCC:  %s\n", m.compose.bcc.View()))
-	b.WriteString(fmt.Sprintf("  Subj: %s\n\n", m.compose.subject.View()))
-	b.WriteString("  Body:\n" + m.compose.body.View() + "\n")
+	b.WriteString(fmt.Sprintf("%s %s\n", fieldLabel(m.compose.focused, 0, "From"), m.compose.from.View()))
+	b.WriteString(fmt.Sprintf("%s %s\n", fieldLabel(m.compose.focused, 1, "To  "), m.compose.to.View()))
+	b.WriteString(fmt.Sprintf("%s %s\n", fieldLabel(m.compose.focused, 2, "CC  "), m.compose.cc.View()))
+	b.WriteString(fmt.Sprintf("%s %s\n", fieldLabel(m.compose.focused, 3, "BCC "), m.compose.bcc.View()))
+	b.WriteString(fmt.Sprintf("%s %s\n\n", fieldLabel(m.compose.focused, 4, "Subj"), m.compose.subject.View()))
+
+	bodyLabel := "  Body"
+	if m.compose.focused == 5 {
+		bodyLabel = "▶ Body"
+	}
+	b.WriteString(fmt.Sprintf("%s (%d chars):\n", bodyLabel, len(m.compose.body.Value())))
+	b.WriteString(m.compose.body.View() + "\n")
 
 	if len(m.compose.attachments) > 0 {
 		b.WriteString("\nAttachments:\n")
@@ -126,7 +154,7 @@ func (m Model) composeView() string {
 	}
 
 	b.WriteString(m.statusBar())
-	b.WriteString("\n[ctrl+s] send • [ctrl+a] add attachment • [ctrl+x] remove attachment • [esc] back")
+	b.WriteString("\n[ctrl+s] send • [ctrl+a] add attachment • [ctrl+x] remove attachment • [tab] next field • [esc] back")
 	return b.String()
 }
 
@@ -134,7 +162,7 @@ func (m Model) replyView() string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("\n  Reply to: %s\n", m.replyTo.From))
-	b.WriteString(fmt.Sprintf("  Subject: Re: %s\n\n", m.replyTo.Subject))
+	b.WriteString(fmt.Sprintf("  Subject: %s\n\n", formatReplySubject(m.replyTo.Subject)))
 	b.WriteString(m.replyBody.View() + "\n")
 
 	if len(m.replyAttachments) > 0 {
@@ -161,6 +189,7 @@ func (m Model) labelsView() string {
 	return m.labelList.View() + "\n[j/k] navigate • [enter] select • [esc/b] back\n"
 }
 
+// humanSize formats a byte count as a human-readable string.
 func humanSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {

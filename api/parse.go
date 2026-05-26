@@ -1,7 +1,7 @@
 package api
 
 import (
-	"encoding/base64"
+	"html"
 	"regexp"
 	"strings"
 	"time"
@@ -38,6 +38,12 @@ func parseMessage(msg *gmail.Message, full bool) *Email {
 				email.CC = h.Value
 			case "Bcc":
 				email.BCC = h.Value
+			case "Message-ID":
+				email.MessageID = h.Value
+			case "References":
+				email.References = h.Value
+			case "In-Reply-To":
+				email.InReplyTo = h.Value
 			}
 		}
 
@@ -86,15 +92,21 @@ func findAttachments(part *gmail.MessagePart) []Attachment {
 }
 
 func extractPlainText(payload *gmail.MessagePart) string {
+	return extractPlainTextDepth(payload, 0)
+}
+
+func extractPlainTextDepth(payload *gmail.MessagePart, depth int) string {
+	if depth > 20 {
+		return ""
+	}
 	if payload.MimeType == "text/plain" && payload.Body != nil && payload.Body.Data != "" {
 		return decodeBody(payload.Body.Data)
 	}
-
 	if strings.HasPrefix(payload.MimeType, "multipart/") && len(payload.Parts) > 0 {
 		// First pass: plain text (recurse into nested multipart)
 		for _, p := range payload.Parts {
 			if p.MimeType == "text/plain" || strings.HasPrefix(p.MimeType, "multipart/") {
-				if text := extractPlainText(p); text != "" {
+				if text := extractPlainTextDepth(p, depth+1); text != "" {
 					return text
 				}
 			}
@@ -102,49 +114,40 @@ func extractPlainText(payload *gmail.MessagePart) string {
 		// Second pass: fall back to HTML
 		for _, p := range payload.Parts {
 			if p.MimeType == "text/html" || strings.HasPrefix(p.MimeType, "multipart/") {
-				if text := extractPlainText(p); text != "" {
+				if text := extractPlainTextDepth(p, depth+1); text != "" {
 					return text
 				}
 			}
 		}
 	}
-
 	if payload.MimeType == "text/html" && payload.Body != nil && payload.Body.Data != "" {
 		return stripHTML(decodeBody(payload.Body.Data))
 	}
-
 	return ""
 }
 
 func decodeBody(body string) string {
-	if len(body)%4 != 0 {
-		body += strings.Repeat("=", (4-len(body)%4)%4)
-	}
-	decoded, err := base64.URLEncoding.DecodeString(body)
+	decoded, err := decodeBase64Robust(body)
 	if err != nil {
-		decoded, err = base64.StdEncoding.DecodeString(body)
-		if err != nil {
-			return "Failed to decode body."
-		}
+		return "(failed to decode body)"
 	}
 	return string(decoded)
 }
 
 func stripHTML(input string) string {
-	input = htmlTagRe.ReplaceAllString(input, "")
-	for _, pair := range [][2]string{
-		{"&nbsp;", " "}, {"&lt;", "<"}, {"&gt;", ">"},
-		{"&amp;", "&"}, {"&quot;", "\""}, {"&apos;", "'"},
-		{"&#39;", "'"}, {"&ndash;", "-"}, {"&mdash;", "—"},
-	} {
-		input = strings.ReplaceAll(input, pair[0], pair[1])
-	}
+	input = htmlTagRe.ReplaceAllString(input, " ")
+	input = html.UnescapeString(input)
+	input = htmlTagRe.ReplaceAllString(input, " ")
+	input = strings.NewReplacer("<", " ", ">", " ").Replace(input)
 	input = whitespaceRe.ReplaceAllString(input, " ")
 	return strings.TrimSpace(input)
 }
 
 // FormatDate parses and formats email dates for display.
 func FormatDate(dateStr string) string {
+	if strings.TrimSpace(dateStr) == "" {
+		return "Unknown date"
+	}
 	for _, format := range []string{
 		time.RFC1123Z,
 		time.RFC1123,

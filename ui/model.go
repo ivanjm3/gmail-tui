@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+
 	"github.com/rdx40/gmail-tui/api"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -28,6 +30,7 @@ const (
 
 // ---------- list.Item adapters ----------
 
+// emailItem wraps an api.Email for display in the inbox list.
 type emailItem struct{ email api.Email }
 
 func (e emailItem) Title() string {
@@ -36,9 +39,14 @@ func (e emailItem) Title() string {
 	}
 	return "  " + e.email.Subject
 }
+
+// Description returns the sender and snippet for the list delegate.
 func (e emailItem) Description() string { return e.email.From + " - " + e.email.Snippet }
+
+// FilterValue returns the text used for list filtering.
 func (e emailItem) FilterValue() string { return e.email.Subject + " " + e.email.From }
 
+// labelItem wraps an api.Label for display in the labels list.
 type labelItem struct{ label api.Label }
 
 func (l labelItem) Title() string       { return l.label.Name }
@@ -48,26 +56,26 @@ func (l labelItem) FilterValue() string { return l.label.Name }
 // ---------- compose form ----------
 
 type composeForm struct {
-	from        textinput.Model
-	to          textinput.Model
-	cc          textinput.Model
-	bcc         textinput.Model
-	subject     textinput.Model
-	body        textarea.Model
-	attachments []string
-	attachInput textinput.Model
+	from         textinput.Model
+	to           textinput.Model
+	cc           textinput.Model
+	bcc          textinput.Model
+	subject      textinput.Model
+	body         textarea.Model
+	attachments  []string
+	attachInput  textinput.Model
 	addingAttach bool
-	focused     int
+	focused      int
 }
 
 func newComposeForm() composeForm {
 	return composeForm{
-		from:    newTextInput("From", 100),
-		to:      newTextInput("To", 100),
-		cc:      newTextInput("CC", 100),
-		bcc:     newTextInput("BCC", 100),
-		subject: newTextInput("Subject", 200),
-		body:    newTextArea("Compose your message here...", 80, 10),
+		from:        newTextInput("From", 100),
+		to:          newTextInput("To", 100),
+		cc:          newTextInput("CC", 100),
+		bcc:         newTextInput("BCC", 100),
+		subject:     newTextInput("Subject", 200),
+		body:        newTextArea("Compose your message here...", 80, 10),
 		attachInput: newTextInput("Path to attachment...", 300),
 	}
 }
@@ -111,9 +119,10 @@ func (f *composeForm) focusField() tea.Cmd {
 
 // ---------- model ----------
 
-// Model is the top-level BubbleTea model.
+// Model is the top-level Bubble Tea model.
 type Model struct {
-	client *api.Client
+	client api.ClientInterface
+	config *api.Config
 	state  viewState
 	width  int
 	height int
@@ -121,19 +130,28 @@ type Model struct {
 	// Inbox
 	emailList list.Model
 
+	// Pagination
+	pageToken    string   // next page token from last inbox fetch
+	pageHistory  []string // stack of previous page tokens
+	currentPage  int      // 1-based current page number
+	totalFetched int      // total emails fetched so far
+
 	// Email viewing
 	viewport     viewport.Model
 	currentEmail *api.Email
 
 	// Compose / Reply
-	compose   composeForm
-	isReply   bool
-	replyTo   *api.Email
-	replyBody textarea.Model
+	compose          composeForm
+	isReply          bool
+	replyTo          *api.Email
+	replyBody        textarea.Model
 	replyAttachments []string
+	confirmDiscard   bool // true when waiting for discard confirmation
+	confirmNoSubject bool // true when waiting for no-subject send confirmation
 
 	// Search
 	searchInput textinput.Model
+	lastQuery   string // preserved last search query
 
 	// Labels
 	labelList list.Model
@@ -145,6 +163,8 @@ type Model struct {
 	statusMessage string
 	attachInput   textinput.Model
 	addingAttach  bool
+	userEmail     string // authenticated user's email address
+	noStyle       bool   // true when TERM=dumb
 
 	// Delete confirmation
 	confirmDelete  bool
@@ -156,13 +176,17 @@ type Model struct {
 }
 
 // New creates an initial Model in loading state.
-func New(client *api.Client) Model {
+func New(client api.ClientInterface, cfg *api.Config) Model {
+	noStyle := os.Getenv("TERM") == "dumb"
+
 	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		BorderForeground(lipgloss.Color("62")).
-		Foreground(lipgloss.Color("62"))
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedTitle.Copy().
-		Foreground(lipgloss.Color("245"))
+	if !noStyle {
+		delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
+			BorderForeground(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("62"))
+		delegate.Styles.SelectedDesc = delegate.Styles.SelectedTitle.Copy().
+			Foreground(lipgloss.Color("245"))
+	}
 
 	el := list.New([]list.Item{}, delegate, 0, 0)
 	el.Title = "Inbox"
@@ -195,6 +219,7 @@ func New(client *api.Client) Model {
 
 	return Model{
 		client:      client,
+		config:      cfg,
 		state:       stateLoading,
 		emailList:   el,
 		viewport:    vp,
@@ -202,15 +227,21 @@ func New(client *api.Client) Model {
 		help:        h,
 		compose:     newComposeForm(),
 		replyBody:   newTextArea("Type your reply here...", 80, 10),
-		searchInput: newTextInput("Search emails...", 200),
+		searchInput: newTextInput("from: is:unread subject: has:attachment", 200),
 		labelList:   ll,
 		attachInput: newTextInput("Path to attachment...", 300),
+		currentPage: 1,
+		noStyle:     noStyle,
 	}
 }
 
-// Init starts the async inbox fetch.
+// Init starts the async inbox fetch and user profile fetch.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, fetchInbox(m.client))
+	return tea.Batch(
+		m.spinner.Tick,
+		fetchInbox(m.client, int64(m.config.MaxResults)),
+		fetchUserProfileCmd(m.client),
+	)
 }
 
 // ---------- helpers ----------
@@ -231,6 +262,7 @@ func newTextArea(placeholder string, width, height int) textarea.Model {
 	return ta
 }
 
+// emailsToItems converts a slice of emails to list items.
 func emailsToItems(emails []api.Email) []list.Item {
 	items := make([]list.Item, len(emails))
 	for i, e := range emails {
@@ -239,6 +271,7 @@ func emailsToItems(emails []api.Email) []list.Item {
 	return items
 }
 
+// labelsToItems converts a slice of labels to list items.
 func labelsToItems(labels []api.Label) []list.Item {
 	items := make([]list.Item, len(labels))
 	for i, l := range labels {
