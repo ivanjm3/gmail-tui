@@ -315,10 +315,11 @@ func newHTTPTestClient(t testing.TB, cfg *Config, fn roundTripFunc) *Client {
 	}
 
 	return &Client{
-		srv:    srv,
-		cache:  newLRUCache(cfg.CacheMaxSize),
-		cfg:    cfg,
-		logger: NoopLogger(),
+		srv:              srv,
+		cache:            newLRUCache(cfg.CacheMaxSize),
+		cfg:              cfg,
+		logger:           NoopLogger(),
+		sendScopeGranted: true,
 	}
 }
 

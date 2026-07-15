@@ -110,19 +110,22 @@ func TestSaveTokenAndLoadToken(t *testing.T) {
 		Expiry:       time.Now().Add(time.Hour).Round(time.Second),
 	}
 
-	if err := saveToken(path, want); err != nil {
+	if err := saveToken(path, want, "https://www.googleapis.com/auth/gmail.send"); err != nil {
 		t.Fatalf("saveToken() error = %v", err)
 	}
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("expected temp token file to be removed, err = %v", err)
 	}
 
-	got, err := loadToken(path)
+	got, scope, err := loadToken(path)
 	if err != nil {
 		t.Fatalf("loadToken() error = %v", err)
 	}
 	if got.AccessToken != want.AccessToken || got.RefreshToken != want.RefreshToken || got.TokenType != want.TokenType {
 		t.Fatalf("loadToken() = %+v, want %+v", got, want)
+	}
+	if scope != "https://www.googleapis.com/auth/gmail.send" {
+		t.Fatalf("loadToken() scope = %q", scope)
 	}
 }
 
@@ -132,7 +135,7 @@ func TestLoadTokenCorruptedFileRemovesIt(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	_, err := loadToken(path)
+	_, _, err := loadToken(path)
 	if err == nil || !strings.Contains(err.Error(), "corrupted file removed") {
 		t.Fatalf("expected corruption error, got %v", err)
 	}
@@ -153,11 +156,11 @@ func TestGetAuthenticatedClientUsesSavedToken(t *testing.T) {
 		AccessToken: "access-token",
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(time.Hour),
-	}); err != nil {
+	}, "https://www.googleapis.com/auth/gmail.readonly"); err != nil {
 		t.Fatalf("saveToken() error = %v", err)
 	}
 
-	client, err := getAuthenticatedClient(context.Background(), &oauth2.Config{
+	client, scope, err := getAuthenticatedClient(context.Background(), &oauth2.Config{
 		ClientID:     "client-id",
 		ClientSecret: "client-secret",
 		RedirectURL:  "http://127.0.0.1",
@@ -171,6 +174,9 @@ func TestGetAuthenticatedClientUsesSavedToken(t *testing.T) {
 	}
 	if client == nil {
 		t.Fatal("expected authenticated client")
+	}
+	if scope != "https://www.googleapis.com/auth/gmail.readonly" {
+		t.Fatalf("getAuthenticatedClient() scope = %q", scope)
 	}
 }
 
@@ -207,7 +213,7 @@ func TestPerformOAuthFlow(t *testing.T) {
 	}
 
 	withStdinFile(t, inputPath, func() {
-		token, err := performOAuthFlow(context.Background(), cfg)
+		token, _, err := performOAuthFlow(context.Background(), cfg)
 		if err != nil {
 			t.Fatalf("performOAuthFlow() error = %v", err)
 		}

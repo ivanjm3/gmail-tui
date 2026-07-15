@@ -23,23 +23,25 @@ const (
 
 // Client wraps the Gmail API with caching and concurrent fetching.
 type Client struct {
-	srv    *gmail.Service
-	cache  *lruCache
-	cfg    *Config
-	logger *Logger
+	srv              *gmail.Service
+	cache            *lruCache
+	cfg              *Config
+	logger           *Logger
+	sendScopeGranted bool
 }
 
 // NewClient authenticates and returns a ready-to-use Client.
 func NewClient(cfg *Config, logger *Logger) (*Client, error) {
-	srv, err := newGmailService()
+	srv, grantedScope, err := newGmailService()
 	if err != nil {
 		return nil, err
 	}
 	return &Client{
-		srv:    srv,
-		cache:  newLRUCache(cfg.CacheMaxSize),
-		cfg:    cfg,
-		logger: logger,
+		srv:              srv,
+		cache:            newLRUCache(cfg.CacheMaxSize),
+		cfg:              cfg,
+		logger:           logger,
+		sendScopeGranted: strings.Contains(grantedScope, gmail.GmailSendScope),
 	}, nil
 }
 
@@ -301,11 +303,10 @@ func (c *Client) CacheSize() int {
 	return c.cache.Size()
 }
 
-// HasSendScope reports whether the client was authorized with the send scope.
-// The current implementation always returns true; this will be updated when
-// scope reduction (Req 2) is implemented.
+// HasSendScope reports whether the authenticated token was actually granted
+// the Gmail send scope (the user can deselect it on Google's consent screen).
 func (c *Client) HasSendScope() bool {
-	return true
+	return c.sendScopeGranted
 }
 
 // ---------- internal ----------
