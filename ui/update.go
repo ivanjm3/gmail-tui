@@ -27,7 +27,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inboxLoadedMsg:
 		m.emailList.SetItems(emailsToItems(msg.emails))
-		m.emailList.Title = "Inbox"
+		m.emailList.Title = inboxTitle(msg.emails)
 		m.totalFetched = len(msg.emails)
 		m.pageToken = msg.nextToken
 		m.currentToken = ""
@@ -63,7 +63,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case emailSentMsg:
 		m.state = stateLoading
 		m.statusMessage = "Email sent!"
-		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
 
 	case emailDeletedMsg:
 		m = m.removeListedEmail(msg.id)
@@ -261,7 +261,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Refresh):
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, int64(m.config.MaxResults)))
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)))
 
 	case key.Matches(msg, keys.NextPage):
 		if m.pageToken == "" {
@@ -272,7 +272,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentToken = m.pageToken
 		m.currentPage++
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), m.pageToken))
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.config.InboxQuery, int64(m.config.MaxResults), m.pageToken))
 
 	case key.Matches(msg, keys.PrevPage):
 		if len(m.pageHistory) == 0 {
@@ -283,7 +283,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentToken = last
 		m.currentPage--
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), last))
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.config.InboxQuery, int64(m.config.MaxResults), last))
 	}
 
 	var cmd tea.Cmd
@@ -537,6 +537,20 @@ func (m Model) updateLabels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // ---------- sub-handlers ----------
+
+// inboxTitle renders the inbox list title with an unread count when nonzero.
+func inboxTitle(emails []api.Email) string {
+	unread := 0
+	for _, e := range emails {
+		if e.IsUnread {
+			unread++
+		}
+	}
+	if unread == 0 {
+		return "Inbox"
+	}
+	return fmt.Sprintf("Inbox (%d unread)", unread)
+}
 
 // removeListedEmail drops an email from the list (after delete/archive) and
 // returns to the inbox if that email was being viewed.

@@ -40,8 +40,13 @@ func (e emailItem) Title() string {
 	return "  " + e.email.Subject
 }
 
-// Description returns the sender and snippet for the list delegate.
-func (e emailItem) Description() string { return e.email.From + " - " + e.email.Snippet }
+// Description returns the date, sender, and snippet for the list delegate.
+func (e emailItem) Description() string {
+	if e.email.Date != "" {
+		return e.email.Date + " • " + e.email.From + " - " + e.email.Snippet
+	}
+	return e.email.From + " - " + e.email.Snippet
+}
 
 // FilterValue returns the text used for list filtering.
 func (e emailItem) FilterValue() string { return e.email.Subject + " " + e.email.From }
@@ -240,7 +245,7 @@ func New(client api.ClientInterface, cfg *api.Config) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		fetchInbox(m.client, int64(m.config.MaxResults)),
+		fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)),
 		fetchUserProfileCmd(m.client),
 	)
 }

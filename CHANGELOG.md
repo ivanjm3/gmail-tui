@@ -11,7 +11,9 @@ The format is based on Keep a Changelog and this project aims to follow Semantic
 - OAuth loopback flow: first launch opens the browser and captures the redirect on a local port automatically; manual code entry remains as a headless fallback.
 - Archive (`a`) removes the selected or open email from the inbox.
 - Refresh (`R`) reloads the inbox from the first page.
-- List title reflects context: `Inbox`, `Search: <query>`, or the label name.
+- List title reflects context: `Inbox`, `Search: <query>`, or the label name, with an unread count for the inbox.
+- Configurable inbox query via `inbox_query` / `GMAIL_TUI_INBOX_QUERY` (default `in:inbox category:primary`).
+- Inbox rows now show the email date alongside sender and snippet.
 
 ### Changed
 

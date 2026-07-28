@@ -8,10 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const (
-	inboxQuery = "in:inbox category:primary"
-)
-
 // ---------- message types ----------
 
 type inboxLoadedMsg struct {
@@ -46,9 +42,9 @@ type userProfileLoadedMsg struct{ email string }
 
 // fetchInbox fetches the first page of the primary inbox, keeping the
 // next-page token so pagination works from the initial load.
-func fetchInbox(client api.ClientInterface, maxResults int64) tea.Cmd {
+func fetchInbox(client api.ClientInterface, query string, maxResults int64) tea.Cmd {
 	return func() tea.Msg {
-		emails, nextToken, err := client.FetchInboxPage(inboxQuery, maxResults, "")
+		emails, nextToken, err := client.FetchInboxPage(query, maxResults, "")
 		if err != nil {
 			return errMsg{err: err}
 		}

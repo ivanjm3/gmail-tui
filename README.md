@@ -72,9 +72,12 @@ downloads_dir = "downloads"
 max_concurrent = 5
 cache_max_size = 500
 log_level = "INFO"
+inbox_query = "in:inbox category:primary"
 ```
 
-Equivalent env vars: `GMAIL_TUI_MAX_RESULTS`, `GMAIL_TUI_SEARCH_MAX_RESULTS`, `GMAIL_TUI_DOWNLOADS_DIR`, `GMAIL_TUI_MAX_CONCURRENT`, `GMAIL_TUI_CACHE_MAX_SIZE`, `GMAIL_TUI_LOG_LEVEL`, `GMAIL_TUI_CREDENTIALS`.
+Equivalent env vars: `GMAIL_TUI_MAX_RESULTS`, `GMAIL_TUI_SEARCH_MAX_RESULTS`, `GMAIL_TUI_DOWNLOADS_DIR`, `GMAIL_TUI_MAX_CONCURRENT`, `GMAIL_TUI_CACHE_MAX_SIZE`, `GMAIL_TUI_LOG_LEVEL`, `GMAIL_TUI_INBOX_QUERY`, `GMAIL_TUI_CREDENTIALS`.
+
+`inbox_query` controls what the main list shows — e.g. `in:inbox` to include all categories, not just Primary.
 
 ## Running locally
 

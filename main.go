@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -19,7 +20,11 @@ func main() {
 
 	home, _ := os.UserHomeDir()
 	logPath := filepath.Join(home, ".config", "gmail-tui", "app.log")
-	logger, _ := api.NewLogger(logPath, api.ParseLogLevel(cfg.LogLevel))
+	logger, err := api.NewLogger(logPath, api.ParseLogLevel(cfg.LogLevel))
+	if err != nil {
+		// Non-fatal: NewLogger returns a no-op logger on failure.
+		fmt.Fprintf(os.Stderr, "warning: file logging disabled: %v\n", err)
+	}
 	defer logger.Close()
 
 	client, err := api.NewClient(cfg, logger)
