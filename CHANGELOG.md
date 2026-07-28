@@ -8,6 +8,7 @@ The format is based on Keep a Changelog and this project aims to follow Semantic
 
 ### Added
 
+- OAuth loopback flow: first launch opens the browser and captures the redirect on a local port automatically; manual code entry remains as a headless fallback.
 - Archive (`a`) removes the selected or open email from the inbox.
 - Refresh (`R`) reloads the inbox from the first page.
 - List title reflects context: `Inbox`, `Search: <query>`, or the label name.
@@ -17,6 +18,7 @@ The format is based on Keep a Changelog and this project aims to follow Semantic
 - HTML bodies now keep line structure (`<br>`, `</p>`, headings become newlines) and drop `<script>`/`<style>` content entirely.
 - Outgoing subjects are RFC 2047 encoded, all user-supplied headers are CRLF-sanitized, and attachment filenames use RFC 2231-safe `Content-Disposition` formatting.
 - Snippets are HTML-entity decoded and truncated on rune boundaries.
+- OAuth state parameter is now cryptographically random and verified on callback (was a static string); the gitignore warning only fires when using a local `credentials.json`.
 - Status messages now always auto-clear; `q`/`ctrl+c` quits from the loading screen.
 
 ### Fixed

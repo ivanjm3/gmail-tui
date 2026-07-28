@@ -82,7 +82,7 @@ Equivalent env vars: `GMAIL_TUI_MAX_RESULTS`, `GMAIL_TUI_SEARCH_MAX_RESULTS`, `G
 go run .
 ```
 
-On first launch the app prints an OAuth authorization URL — open it, grant access, and paste the returned code back into the terminal. The token is cached locally after that.
+On first launch the app opens your browser for OAuth authorization and captures the redirect on a local loopback port — no copy-paste needed. If a local listener can't be started (headless environments), it falls back to printing the URL and reading the code from the terminal. The token is cached locally after that.
 
 For day-to-day verification:
 

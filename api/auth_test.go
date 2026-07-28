@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,14 +215,122 @@ func TestPerformOAuthFlow(t *testing.T) {
 	}
 
 	withStdinFile(t, inputPath, func() {
-		token, _, err := performOAuthFlow(context.Background(), cfg)
+		token, _, err := performManualFlow(context.Background(), cfg)
 		if err != nil {
-			t.Fatalf("performOAuthFlow() error = %v", err)
+			t.Fatalf("performManualFlow() error = %v", err)
 		}
 		if token.AccessToken != "access-token" || token.RefreshToken != "refresh-token" {
 			t.Fatalf("unexpected token: %+v", token)
 		}
 	})
+}
+
+func TestPerformLoopbackFlow(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"scope":         "granted-scope",
+		})
+	}))
+	defer tokenServer.Close()
+
+	cfg := &oauth2.Config{
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  tokenServer.URL + "/auth",
+			TokenURL: tokenServer.URL,
+		},
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+
+	// Intercept the auth URL to recover the state, then simulate the
+	// browser hitting the local callback.
+	oldOpen := openBrowserFn
+	defer func() { openBrowserFn = oldOpen }()
+	openBrowserFn = func(authURL string) {
+		go func() {
+			u, err := url.Parse(authURL)
+			if err != nil {
+				t.Errorf("parse auth url: %v", err)
+				return
+			}
+			state := u.Query().Get("state")
+			redirect := u.Query().Get("redirect_uri")
+			resp, err := http.Get(redirect + "?state=" + url.QueryEscape(state) + "&code=auth-code")
+			if err != nil {
+				t.Errorf("callback request: %v", err)
+				return
+			}
+			resp.Body.Close()
+		}()
+	}
+
+	token, scope, err := performLoopbackFlow(context.Background(), cfg, ln)
+	if err != nil {
+		t.Fatalf("performLoopbackFlow() error = %v", err)
+	}
+	if token.AccessToken != "access-token" {
+		t.Fatalf("unexpected token: %+v", token)
+	}
+	if scope != "granted-scope" {
+		t.Fatalf("scope = %q, want granted-scope", scope)
+	}
+}
+
+func TestPerformLoopbackFlowRejectsBadState(t *testing.T) {
+	cfg := &oauth2.Config{
+		ClientID: "client-id",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://example.com/auth",
+			TokenURL: "https://example.com/token",
+		},
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+
+	oldOpen := openBrowserFn
+	defer func() { openBrowserFn = oldOpen }()
+	openBrowserFn = func(authURL string) {
+		go func() {
+			resp, err := http.Get("http://" + ln.Addr().String() + "/callback?state=wrong&code=auth-code")
+			if err != nil {
+				t.Errorf("callback request: %v", err)
+				return
+			}
+			resp.Body.Close()
+		}()
+	}
+
+	_, _, err = performLoopbackFlow(context.Background(), cfg, ln)
+	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
+		t.Fatalf("expected state mismatch error, got %v", err)
+	}
+}
+
+func TestRandomStateUnique(t *testing.T) {
+	a, err := randomState()
+	if err != nil {
+		t.Fatalf("randomState() error = %v", err)
+	}
+	b, err := randomState()
+	if err != nil {
+		t.Fatalf("randomState() error = %v", err)
+	}
+	if a == b || len(a) != 32 {
+		t.Fatalf("randomState() not unique/32 hex chars: %q %q", a, b)
+	}
 }
 
 func withWorkingDir(t *testing.T, dir string, fn func()) {
