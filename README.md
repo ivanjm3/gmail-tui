@@ -181,8 +181,3 @@ Sending with an empty recipient is rejected inline (`Error: recipient address is
 | --- | --- |
 | ![Attach send](images/attach_send.png) | ![Attach receive](images/attach_rec.png) |
 
-## Resume Bullet Points
-
-- Designed and implemented a UI-agnostic Gmail API client in Go with a layered config system, structured JSON logging, and a bounded LRU cache, enabling sub-package unit testing without a live network or terminal.
-- Built a decoupled terminal application using the Model-View-Update pattern, converting all network I/O into async commands to keep the render loop non-blocking and independently testable.
-- Drove test coverage above 80% on the API layer using unit, property-based (rapid), and integration tests, catching MIME-parsing and attachment path-traversal edge cases before release.
