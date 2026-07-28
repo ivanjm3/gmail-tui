@@ -275,7 +275,7 @@ func TestWriteAttachment(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	if !strings.Contains(buf.String(), "filename=\"file.txt\"") {
+	if !strings.Contains(buf.String(), "filename=file.txt") {
 		t.Fatalf("multipart body missing filename header: %q", buf.String())
 	}
 

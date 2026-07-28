@@ -124,14 +124,39 @@ func (c *Client) ToggleRead(id string, currentlyUnread bool) (newUnread bool, er
 	}
 
 	newUnread = !currentlyUnread
-	if e, ok := c.cache.Load(id); ok {
-		e.IsUnread = newUnread
-	}
+	c.cache.UpdateUnread(id, newUnread)
 	return newUnread, nil
 }
 
-// SendEmail constructs a proper MIME message and sends it.
-func (c *Client) SendEmail(to, cc, bcc, subject, body string, attachments []string) error {
+// ArchiveEmail removes the INBOX label so the message leaves the inbox.
+func (c *Client) ArchiveEmail(id string) error {
+	mod := &gmail.ModifyMessageRequest{RemoveLabelIds: []string{"INBOX"}}
+	if _, err := c.srv.Users.Messages.Modify("me", id, mod).Do(); err != nil {
+		return fmt.Errorf("archiveEmail: %w", err)
+	}
+	return nil
+}
+
+// outgoing describes a message to be built into a raw MIME payload.
+type outgoing struct {
+	to, cc, bcc, subject, body string
+	inReplyTo, references      string
+	attachments                []string
+}
+
+// sanitizeHeader strips CR/LF so user-supplied values cannot inject headers.
+func sanitizeHeader(v string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return ' '
+		}
+		return r
+	}, v)
+}
+
+// buildRawMessage assembles a multipart/mixed MIME message and returns it
+// base64url-encoded, ready for the Gmail API's Raw field.
+func buildRawMessage(o outgoing) (string, error) {
 	var mimeBody bytes.Buffer
 	writer := multipart.NewWriter(&mimeBody)
 
@@ -139,38 +164,54 @@ func (c *Client) SendEmail(to, cc, bcc, subject, body string, attachments []stri
 	textHeader.Set("Content-Type", "text/plain; charset=utf-8")
 	textPart, err := writer.CreatePart(textHeader)
 	if err != nil {
-		return fmt.Errorf("failed to create text part: %w", err)
+		return "", fmt.Errorf("failed to create text part: %w", err)
 	}
-	if _, err := textPart.Write([]byte(body)); err != nil {
-		return fmt.Errorf("failed to write body: %w", err)
+	if _, err := textPart.Write([]byte(o.body)); err != nil {
+		return "", fmt.Errorf("failed to write body: %w", err)
 	}
 
-	for _, fp := range attachments {
+	for _, fp := range o.attachments {
 		if err := writeAttachment(writer, fp); err != nil {
-			return err
+			return "", err
 		}
 	}
 
 	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close writer: %w", err)
+		return "", fmt.Errorf("failed to close writer: %w", err)
 	}
 
 	var msg bytes.Buffer
-	fmt.Fprintf(&msg, "To: %s\r\n", to)
-	if cc != "" {
-		fmt.Fprintf(&msg, "Cc: %s\r\n", cc)
+	fmt.Fprintf(&msg, "To: %s\r\n", sanitizeHeader(o.to))
+	if o.cc != "" {
+		fmt.Fprintf(&msg, "Cc: %s\r\n", sanitizeHeader(o.cc))
 	}
-	if bcc != "" {
-		fmt.Fprintf(&msg, "Bcc: %s\r\n", bcc)
+	if o.bcc != "" {
+		fmt.Fprintf(&msg, "Bcc: %s\r\n", sanitizeHeader(o.bcc))
 	}
-	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&msg, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", sanitizeHeader(o.subject)))
+	if o.inReplyTo != "" {
+		fmt.Fprintf(&msg, "In-Reply-To: %s\r\n", sanitizeHeader(o.inReplyTo))
+	}
+	if o.references != "" {
+		fmt.Fprintf(&msg, "References: %s\r\n", sanitizeHeader(o.references))
+	}
 	fmt.Fprintf(&msg, "MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&msg, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", writer.Boundary())
 	msg.Write(mimeBody.Bytes())
 
-	raw := base64.URLEncoding.EncodeToString(msg.Bytes())
-	_, err = c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
+	return base64.URLEncoding.EncodeToString(msg.Bytes()), nil
+}
+
+// SendEmail constructs a proper MIME message and sends it.
+func (c *Client) SendEmail(to, cc, bcc, subject, body string, attachments []string) error {
+	raw, err := buildRawMessage(outgoing{
+		to: to, cc: cc, bcc: bcc, subject: subject, body: body,
+		attachments: attachments,
+	})
 	if err != nil {
+		return fmt.Errorf("sendEmail: %w", err)
+	}
+	if _, err := c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do(); err != nil {
 		return fmt.Errorf("sendEmail: %w", err)
 	}
 	return nil
@@ -254,45 +295,15 @@ func (c *Client) GetUserProfile() (string, error) {
 // SendReply sends a reply to an existing email thread, setting the appropriate
 // In-Reply-To and References headers for proper threading.
 func (c *Client) SendReply(to, subject, body, inReplyTo, references string, attachments []string) error {
-	var mimeBody bytes.Buffer
-	writer := multipart.NewWriter(&mimeBody)
-
-	textHeader := textproto.MIMEHeader{}
-	textHeader.Set("Content-Type", "text/plain; charset=utf-8")
-	textPart, err := writer.CreatePart(textHeader)
+	raw, err := buildRawMessage(outgoing{
+		to: to, subject: subject, body: body,
+		inReplyTo: inReplyTo, references: references,
+		attachments: attachments,
+	})
 	if err != nil {
-		return fmt.Errorf("sendReply: failed to create text part: %w", err)
+		return fmt.Errorf("sendReply: %w", err)
 	}
-	if _, err := textPart.Write([]byte(body)); err != nil {
-		return fmt.Errorf("sendReply: failed to write body: %w", err)
-	}
-
-	for _, fp := range attachments {
-		if err := writeAttachment(writer, fp); err != nil {
-			return err
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("sendReply: failed to close writer: %w", err)
-	}
-
-	var msg bytes.Buffer
-	fmt.Fprintf(&msg, "To: %s\r\n", to)
-	fmt.Fprintf(&msg, "Subject: %s\r\n", subject)
-	if inReplyTo != "" {
-		fmt.Fprintf(&msg, "In-Reply-To: %s\r\n", inReplyTo)
-	}
-	if references != "" {
-		fmt.Fprintf(&msg, "References: %s\r\n", references)
-	}
-	fmt.Fprintf(&msg, "MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&msg, "Content-Type: multipart/mixed; boundary=%s\r\n\r\n", writer.Boundary())
-	msg.Write(mimeBody.Bytes())
-
-	raw := base64.URLEncoding.EncodeToString(msg.Bytes())
-	_, err = c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do()
-	if err != nil {
+	if _, err := c.srv.Users.Messages.Send("me", &gmail.Message{Raw: raw}).Do(); err != nil {
 		return fmt.Errorf("sendReply: %w", err)
 	}
 	return nil
@@ -398,7 +409,8 @@ func writeAttachment(writer *multipart.Writer, filePath string) error {
 		mimeType = "application/octet-stream"
 	}
 	partHeader.Set("Content-Type", mimeType)
-	partHeader.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filePath)))
+	partHeader.Set("Content-Disposition",
+		mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(filePath)}))
 	partHeader.Set("Content-Transfer-Encoding", "base64")
 
 	pw, err := writer.CreatePart(partHeader)

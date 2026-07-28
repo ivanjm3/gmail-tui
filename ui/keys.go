@@ -10,6 +10,8 @@ type keyMap struct {
 	Reply              key.Binding
 	Compose            key.Binding
 	Delete             key.Binding
+	Archive            key.Binding
+	Refresh            key.Binding
 	Search             key.Binding
 	Labels             key.Binding
 	ToggleRead         key.Binding
@@ -34,7 +36,8 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Compose, k.Reply, k.Search, k.Labels},
-		{k.Delete, k.ToggleRead, k.Back, k.Quit},
+		{k.Delete, k.Archive, k.ToggleRead, k.Refresh},
+		{k.Back, k.Quit},
 		{k.Send, k.NextInput, k.PrevInput},
 		{k.AddAttachment, k.RemoveAttachment, k.DownloadAttachment},
 		{k.NextPage, k.PrevPage},
@@ -48,6 +51,8 @@ var keys = keyMap{
 	Reply:              key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reply")),
 	Compose:            key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "compose")),
 	Delete:             key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+	Archive:            key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "archive")),
+	Refresh:            key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
 	Search:             key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	Labels:             key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "labels")),
 	ToggleRead:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mark read/unread")),

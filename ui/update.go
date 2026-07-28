@@ -27,14 +27,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inboxLoadedMsg:
 		m.emailList.SetItems(emailsToItems(msg.emails))
+		m.emailList.Title = "Inbox"
 		m.totalFetched = len(msg.emails)
+		m.pageToken = msg.nextToken
+		m.currentToken = ""
+		m.pageHistory = nil
+		m.currentPage = 1
 		m.state = stateInbox
 		return m, nil
 
 	case nextPageLoadedMsg:
 		m.emailList.SetItems(emailsToItems(msg.emails))
 		m.pageToken = msg.nextToken
-		m.totalFetched += len(msg.emails)
+		m.totalFetched = len(msg.emails)
 		m.state = stateInbox
 		return m, nil
 
@@ -61,17 +66,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
 
 	case emailDeletedMsg:
-		items := m.emailList.Items()
-		for i, item := range items {
-			if ei, ok := item.(emailItem); ok && ei.email.ID == msg.id {
-				m.emailList.RemoveItem(i)
-				break
-			}
-		}
-		if m.state == stateViewing {
-			m.state = stateInbox
-		}
+		m = m.removeListedEmail(msg.id)
 		m.statusMessage = "Email moved to trash"
+		return m, clearStatusAfter(3 * time.Second)
+
+	case emailArchivedMsg:
+		m = m.removeListedEmail(msg.id)
+		m.statusMessage = "Email archived"
 		return m, clearStatusAfter(3 * time.Second)
 
 	case readToggledMsg:
@@ -82,6 +83,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.emailList.SetItem(i, ei)
 				break
 			}
+		}
+		if m.currentEmail != nil && m.currentEmail.ID == msg.id {
+			m.currentEmail.IsUnread = msg.isUnread
 		}
 		action := "marked as read"
 		if msg.isUnread {
@@ -96,14 +100,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case searchResultMsg:
+		m.emailList.SetItems(emailsToItems(msg.emails))
+		if msg.title != "" {
+			m.emailList.Title = msg.title
+		}
+		// Results replace the inbox listing; inbox page tokens no longer apply.
+		m.pageToken = ""
+		m.currentToken = ""
+		m.pageHistory = nil
+		m.currentPage = 1
+		m.totalFetched = len(msg.emails)
+		m.state = stateInbox
 		if len(msg.emails) == 0 && msg.query != "" {
-			m.emailList.SetItems(emailsToItems([]api.Email{}))
-			m.state = stateInbox
 			m.statusMessage = fmt.Sprintf("No results found for: %s", msg.query)
 			return m, clearStatusAfter(5 * time.Second)
 		}
-		m.emailList.SetItems(emailsToItems(msg.emails))
-		m.state = stateInbox
 		return m, nil
 
 	case attachmentSavedMsg:
@@ -119,7 +130,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusMsg:
 		m.statusMessage = msg.message
-		return m, nil
+		return m, clearStatusAfter(3 * time.Second)
 
 	case clearStatusMsg:
 		m.statusMessage = ""
@@ -175,6 +186,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.state {
+	case stateLoading:
+		if key.Matches(msg, keys.Quit) {
+			return m, tea.Quit
+		}
 	case stateInbox:
 		return m.updateInbox(msg)
 	case stateViewing:
@@ -197,7 +212,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Compose):
 		if !m.client.HasSendScope() {
-			return m, notifyTimed("Compose disabled: Gmail send scope not granted")
+			return m, notify("Compose disabled: Gmail send scope not granted")
 		}
 		m.state = stateComposing
 		m.isReply = false
@@ -239,12 +254,22 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, toggleReadCmd(m.client, ei.email.ID, ei.email.IsUnread)
 		}
 
+	case key.Matches(msg, keys.Archive):
+		if ei, ok := m.emailList.SelectedItem().(emailItem); ok {
+			return m, archiveEmailCmd(m.client, ei.email.ID)
+		}
+
+	case key.Matches(msg, keys.Refresh):
+		m.state = stateLoading
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, int64(m.config.MaxResults)))
+
 	case key.Matches(msg, keys.NextPage):
 		if m.pageToken == "" {
 			m.statusMessage = "No more emails"
 			return m, clearStatusAfter(2 * time.Second)
 		}
-		m.pageHistory = append(m.pageHistory, m.pageToken)
+		m.pageHistory = append(m.pageHistory, m.currentToken)
+		m.currentToken = m.pageToken
 		m.currentPage++
 		m.state = stateLoading
 		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), m.pageToken))
@@ -255,6 +280,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		last := m.pageHistory[len(m.pageHistory)-1]
 		m.pageHistory = m.pageHistory[:len(m.pageHistory)-1]
+		m.currentToken = last
 		m.currentPage--
 		m.state = stateLoading
 		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, inboxQuery, int64(m.config.MaxResults), last))
@@ -274,7 +300,7 @@ func (m Model) updateViewing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Reply):
 		if !m.client.HasSendScope() {
-			return m, notifyTimed("Reply disabled: Gmail send scope not granted")
+			return m, notify("Reply disabled: Gmail send scope not granted")
 		}
 		m.state = stateReplying
 		m.replyTo = m.currentEmail
@@ -293,6 +319,9 @@ func (m Model) updateViewing(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.ToggleRead):
 		return m, toggleReadCmd(m.client, m.currentEmail.ID, m.currentEmail.IsUnread)
+
+	case key.Matches(msg, keys.Archive):
+		return m, archiveEmailCmd(m.client, m.currentEmail.ID)
 
 	case key.Matches(msg, keys.Labels):
 		m.state = stateLoading
@@ -498,7 +527,7 @@ func (m Model) updateLabels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Select):
 		if li, ok := m.labelList.SelectedItem().(labelItem); ok {
 			m.state = stateLoading
-			return m, tea.Batch(m.spinner.Tick, fetchByLabelCmd(m.client, li.label.ID, int64(m.config.MaxResults)))
+			return m, tea.Batch(m.spinner.Tick, fetchByLabelCmd(m.client, li.label.ID, li.label.Name, int64(m.config.MaxResults)))
 		}
 	}
 
@@ -508,6 +537,24 @@ func (m Model) updateLabels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // ---------- sub-handlers ----------
+
+// removeListedEmail drops an email from the list (after delete/archive) and
+// returns to the inbox if that email was being viewed.
+func (m Model) removeListedEmail(id string) Model {
+	for i, item := range m.emailList.Items() {
+		if ei, ok := item.(emailItem); ok && ei.email.ID == id {
+			m.emailList.RemoveItem(i)
+			if m.totalFetched > 0 {
+				m.totalFetched--
+			}
+			break
+		}
+	}
+	if m.state == stateViewing {
+		m.state = stateInbox
+	}
+	return m
+}
 
 func (m Model) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -603,11 +650,17 @@ func (m Model) updateSubComponents(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// truncate shortens s to at most max characters (runes), appending "..." when
+// truncated. Rune-based so multi-byte characters are never split.
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	if max <= 3 {
+		return string(r[:max])
+	}
+	return string(r[:max-3]) + "..."
 }
 
 func (m Model) composeSendCmd() tea.Cmd {
@@ -629,13 +682,15 @@ func (m Model) replySendCmd() tea.Cmd {
 		m.replyTo.Date,
 		api.IndentText(m.currentEmail.Body),
 	)
+	// RFC 5322: References of a reply = original References + original Message-ID.
+	references := strings.TrimSpace(m.replyTo.References + " " + m.replyTo.MessageID)
 	return sendReplyCmd(
 		m.client,
 		m.replyTo.From,
 		formatReplySubject(m.replyTo.Subject),
 		m.replyBody.Value()+quoted,
 		m.replyTo.MessageID,
-		m.replyTo.References,
+		references,
 		m.replyAttachments,
 	)
 }

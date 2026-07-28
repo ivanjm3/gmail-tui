@@ -32,7 +32,10 @@ func TestStripHTML(t *testing.T) {
 		{name: "whitespace collapse", input: "a  b\t\tc\n\n", want: "a b c"},
 		{name: "whitespace after stripping", input: "<br/>   <br/>", want: ""},
 		{name: "unicode", input: "<p>héllo wörld</p>", want: "héllo wörld"},
-		{name: "script content", input: "<script>alert('xss')</script>", want: "alert('xss')"},
+		{name: "script content dropped", input: "<script>alert('xss')</script>", want: ""},
+		{name: "style content dropped", input: "<style>.a { color: red; }</style>hello", want: "hello"},
+		{name: "br becomes newline", input: "line one<br>line two", want: "line one\nline two"},
+		{name: "paragraphs become newlines", input: "<p>one</p><p>two</p>", want: "one\ntwo"},
 	}
 
 	for _, tt := range tests {

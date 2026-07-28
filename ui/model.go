@@ -131,10 +131,11 @@ type Model struct {
 	emailList list.Model
 
 	// Pagination
-	pageToken    string   // next page token from last inbox fetch
-	pageHistory  []string // stack of previous page tokens
+	pageToken    string   // token that fetches the NEXT page ("" = no more)
+	currentToken string   // token that fetched the CURRENT page ("" = first page)
+	pageHistory  []string // tokens that fetched each previous page
 	currentPage  int      // 1-based current page number
-	totalFetched int      // total emails fetched so far
+	totalFetched int      // emails on the current page
 
 	// Email viewing
 	viewport     viewport.Model

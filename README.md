@@ -106,8 +106,10 @@ golangci-lint run
 | `c` | Compose |
 | `r` | Reply |
 | `d` | Move to trash |
+| `a` | Archive (remove from inbox) |
 | `m` | Toggle read/unread |
 | `l` | Labels |
+| `R` | Refresh inbox |
 | `ctrl+d` | Download attachment |
 | `n` / `p` | Next / previous page |
 | `?` | Help |

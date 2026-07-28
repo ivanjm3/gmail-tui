@@ -30,7 +30,8 @@ func newLRUCache(maxSize int) *lruCache {
 	}
 }
 
-// Load retrieves an Email from the cache by ID.
+// Load retrieves a copy of an Email from the cache by ID. Returning a copy
+// keeps callers from mutating cache internals outside the lock.
 // Updates the entry's lastAccess time. Returns (nil, false) if not found.
 func (c *lruCache) Load(id string) (*Email, bool) {
 	c.mu.Lock()
@@ -40,7 +41,18 @@ func (c *lruCache) Load(id string) (*Email, bool) {
 		return nil, false
 	}
 	entry.lastAccess = time.Now()
-	return entry.email, true
+	cp := *entry.email
+	return &cp, true
+}
+
+// UpdateUnread sets the IsUnread flag on a cached entry, if present.
+func (c *lruCache) UpdateUnread(id string, unread bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if entry, ok := c.entries[id]; ok {
+		entry.email.IsUnread = unread
+		entry.lastAccess = time.Now()
+	}
 }
 
 // Store inserts or updates an Email in the cache.

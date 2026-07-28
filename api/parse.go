@@ -10,8 +10,11 @@ import (
 )
 
 var (
-	htmlTagRe    = regexp.MustCompile(`<[^>]*>`)
-	whitespaceRe = regexp.MustCompile(`\s+`)
+	htmlTagRe     = regexp.MustCompile(`<[^>]*>`)
+	scriptStyleRe = regexp.MustCompile(`(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)\s*>`)
+	lineBreakRe   = regexp.MustCompile(`(?i)<br\s*/?>|</(?:p|div|tr|li|h[1-6])\s*>`)
+	spaceRe       = regexp.MustCompile(`[ \t\f\v\r]+`)
+	newlineRe     = regexp.MustCompile(`\s*\n\s*`)
 )
 
 // parseMessage converts a raw Gmail API message into a domain Email.
@@ -64,8 +67,10 @@ func parseMessage(msg *gmail.Message, full bool) *Email {
 		email.Labels = append(email.Labels, labelID)
 	}
 
-	if len(email.Snippet) > 80 {
-		email.Snippet = email.Snippet[:77] + "..."
+	// Gmail returns snippets HTML-entity-escaped; decode for display.
+	email.Snippet = html.UnescapeString(email.Snippet)
+	if r := []rune(email.Snippet); len(r) > 80 {
+		email.Snippet = string(r[:77]) + "..."
 	}
 
 	return email
@@ -134,12 +139,19 @@ func decodeBody(body string) string {
 	return string(decoded)
 }
 
+// stripHTML converts an HTML body to readable plain text: script/style blocks
+// are dropped entirely, line-breaking tags become newlines, remaining tags are
+// stripped, entities are decoded, and whitespace is normalized (runs collapse
+// to a single space or newline).
 func stripHTML(input string) string {
+	input = scriptStyleRe.ReplaceAllString(input, " ")
+	input = lineBreakRe.ReplaceAllString(input, "\n")
 	input = htmlTagRe.ReplaceAllString(input, " ")
 	input = html.UnescapeString(input)
 	input = htmlTagRe.ReplaceAllString(input, " ")
 	input = strings.NewReplacer("<", " ", ">", " ").Replace(input)
-	input = whitespaceRe.ReplaceAllString(input, " ")
+	input = spaceRe.ReplaceAllString(input, " ")
+	input = newlineRe.ReplaceAllString(input, "\n")
 	return strings.TrimSpace(input)
 }
 

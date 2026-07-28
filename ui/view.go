@@ -78,7 +78,7 @@ func (m Model) inboxView() string {
 	if m.totalFetched > 0 {
 		pageInfo = fmt.Sprintf("Page %d • %d emails", m.currentPage, m.totalFetched)
 	}
-	help := fmt.Sprintf("\n[c] compose • [d] delete • [m] mark read/unread • [l] labels • [/] search • [n] next • [p] prev • [?] help • [q] quit  %s\n", pageInfo)
+	help := fmt.Sprintf("\n[c] compose • [d] delete • [a] archive • [m] read/unread • [l] labels • [/] search • [R] refresh • [n/p] page • [?] help • [q] quit  %s\n", pageInfo)
 	return m.emailList.View() + m.statusBar() + help
 }
 
@@ -113,7 +113,7 @@ func (m Model) emailView() string {
 	}
 
 	b.WriteString(m.statusBar())
-	b.WriteString("\n[esc] back • [r] reply • [d] delete • [m] mark read/unread • [ctrl+d] download attachment • [q] quit\n")
+	b.WriteString("\n[esc] back • [r] reply • [d] delete • [a] archive • [m] read/unread • [ctrl+d] download attachment • [q] quit\n")
 	return b.String()
 }
 

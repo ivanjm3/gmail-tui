@@ -9,3 +9,4 @@ bin/
 .kiro
 .exe
 credentials.json
+.claude/

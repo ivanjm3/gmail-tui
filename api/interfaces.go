@@ -12,6 +12,7 @@ type ClientInterface interface {
 	FetchLabels() ([]Label, error)
 	GetUserProfile() (string, error)
 	DeleteEmail(id string) error
+	ArchiveEmail(id string) error
 	ToggleRead(id string, currentlyUnread bool) (bool, error)
 	SendEmail(to, cc, bcc, subject, body string, attachments []string) error
 	SendReply(to, subject, body, inReplyTo, references string, attachments []string) error

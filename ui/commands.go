@@ -14,10 +14,14 @@ const (
 
 // ---------- message types ----------
 
-type inboxLoadedMsg struct{ emails []api.Email }
+type inboxLoadedMsg struct {
+	emails    []api.Email
+	nextToken string
+}
 type emailOpenedMsg struct{ email *api.Email }
 type emailSentMsg struct{}
 type emailDeletedMsg struct{ id string }
+type emailArchivedMsg struct{ id string }
 type readToggledMsg struct {
 	id       string
 	isUnread bool
@@ -26,6 +30,7 @@ type labelsLoadedMsg struct{ labels []api.Label }
 type searchResultMsg struct {
 	emails []api.Email
 	query  string
+	title  string // list title to show for these results
 }
 type attachmentSavedMsg struct{ path string }
 type errMsg struct{ err error }
@@ -39,14 +44,15 @@ type userProfileLoadedMsg struct{ email string }
 
 // ---------- commands ----------
 
-// fetchInbox fetches the primary inbox with the given max results.
+// fetchInbox fetches the first page of the primary inbox, keeping the
+// next-page token so pagination works from the initial load.
 func fetchInbox(client api.ClientInterface, maxResults int64) tea.Cmd {
 	return func() tea.Msg {
-		emails, err := client.FetchInbox(inboxQuery, maxResults)
+		emails, nextToken, err := client.FetchInboxPage(inboxQuery, maxResults, "")
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return inboxLoadedMsg{emails: emails}
+		return inboxLoadedMsg{emails: emails, nextToken: nextToken}
 	}
 }
 
@@ -91,6 +97,16 @@ func deleteEmailCmd(client api.ClientInterface, id string) tea.Cmd {
 	}
 }
 
+// archiveEmailCmd removes an email from the inbox (removes the INBOX label).
+func archiveEmailCmd(client api.ClientInterface, id string) tea.Cmd {
+	return func() tea.Msg {
+		if err := client.ArchiveEmail(id); err != nil {
+			return errMsg{err: err}
+		}
+		return emailArchivedMsg{id: id}
+	}
+}
+
 // toggleReadCmd flips the read/unread state of an email.
 func toggleReadCmd(client api.ClientInterface, id string, currentlyUnread bool) tea.Cmd {
 	return func() tea.Msg {
@@ -109,18 +125,18 @@ func searchCmd(client api.ClientInterface, query string, maxResults int64) tea.C
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return searchResultMsg{emails: emails, query: query}
+		return searchResultMsg{emails: emails, query: query, title: "Search: " + query}
 	}
 }
 
 // fetchByLabelCmd fetches emails with the given label.
-func fetchByLabelCmd(client api.ClientInterface, labelID string, maxResults int64) tea.Cmd {
+func fetchByLabelCmd(client api.ClientInterface, labelID, labelName string, maxResults int64) tea.Cmd {
 	return func() tea.Msg {
 		emails, err := client.FetchByLabel(labelID, maxResults)
 		if err != nil {
 			return errMsg{err: err}
 		}
-		return searchResultMsg{emails: emails, query: ""}
+		return searchResultMsg{emails: emails, query: "", title: labelName}
 	}
 }
 
@@ -169,7 +185,7 @@ func fetchUserProfileCmd(client api.ClientInterface) tea.Cmd {
 	}
 }
 
-// notify sends a one-shot status message.
+// notify sends a one-shot status message; the Update handler auto-clears it.
 func notify(msg string) tea.Cmd {
 	return func() tea.Msg { return statusMsg{message: msg} }
 }
@@ -177,11 +193,4 @@ func notify(msg string) tea.Cmd {
 // clearStatusAfter clears the status bar after the given duration.
 func clearStatusAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return clearStatusMsg{} })
-}
-
-func notifyTimed(msg string) tea.Cmd {
-	return tea.Batch(
-		notify(msg),
-		clearStatusAfter(3*time.Second),
-	)
 }
