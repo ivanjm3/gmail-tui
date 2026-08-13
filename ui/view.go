@@ -78,7 +78,7 @@ func (m Model) inboxView() string {
 	if m.totalFetched > 0 {
 		pageInfo = fmt.Sprintf("Page %d • %d emails", m.currentPage, m.totalFetched)
 	}
-	help := fmt.Sprintf("\n[c] compose • [d] delete • [a] archive • [m] read/unread • [l] labels • [/] search • [R] refresh • [n/p] page • [?] help • [q] quit  %s\n", pageInfo)
+	help := fmt.Sprintf("\n[c] compose • [d] delete • [a] archive • [m] read/unread • [u] all/unread • [l] labels • [/] search • [R] refresh • [n/p] page • [?] help • [q] quit  %s\n", pageInfo)
 	return m.emailList.View() + m.statusBar() + help
 }
 

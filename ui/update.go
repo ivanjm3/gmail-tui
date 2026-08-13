@@ -27,12 +27,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inboxLoadedMsg:
 		m.emailList.SetItems(emailsToItems(msg.emails))
-		m.emailList.Title = inboxTitle(msg.emails)
+		m.emailList.Title = inboxTitle(msg.emails, m.unreadOnly)
 		m.totalFetched = len(msg.emails)
 		m.pageToken = msg.nextToken
 		m.currentToken = ""
 		m.pageHistory = nil
 		m.currentPage = 1
+		m.listIsInbox = true
 		m.state = stateInbox
 		return m, nil
 
@@ -63,7 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case emailSentMsg:
 		m.state = stateLoading
 		m.statusMessage = "Email sent!"
-		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults)), clearStatusAfter(3*time.Second))
 
 	case emailDeletedMsg:
 		m = m.removeListedEmail(msg.id)
@@ -76,16 +77,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, clearStatusAfter(3 * time.Second)
 
 	case readToggledMsg:
-		items := m.emailList.Items()
-		for i, item := range items {
-			if ei, ok := item.(emailItem); ok && ei.email.ID == msg.id {
-				ei.email.IsUnread = msg.isUnread
-				m.emailList.SetItem(i, ei)
-				break
+		if m.listIsInbox && m.unreadOnly && !msg.isUnread {
+			// Now-read email no longer matches the unread-only filter; drop it
+			// from the list without forcing a viewing→inbox state change.
+			for i, item := range m.emailList.Items() {
+				if ei, ok := item.(emailItem); ok && ei.email.ID == msg.id {
+					m.emailList.RemoveItem(i)
+					if m.totalFetched > 0 {
+						m.totalFetched--
+					}
+					break
+				}
+			}
+		} else {
+			for i, item := range m.emailList.Items() {
+				if ei, ok := item.(emailItem); ok && ei.email.ID == msg.id {
+					ei.email.IsUnread = msg.isUnread
+					m.emailList.SetItem(i, ei)
+					break
+				}
 			}
 		}
 		if m.currentEmail != nil && m.currentEmail.ID == msg.id {
 			m.currentEmail.IsUnread = msg.isUnread
+		}
+		// Only recompute the inbox title for an active inbox listing; search
+		// and label results keep their own title.
+		if m.listIsInbox {
+			m.emailList.Title = inboxTitle(listEmails(m.emailList.Items()), m.unreadOnly)
 		}
 		action := "marked as read"
 		if msg.isUnread {
@@ -109,7 +128,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentToken = ""
 		m.pageHistory = nil
 		m.currentPage = 1
-		m.totalFetched = len(msg.emails)
+		m.listIsInbox = false
 		m.state = stateInbox
 		if len(msg.emails) == 0 && msg.query != "" {
 			m.statusMessage = fmt.Sprintf("No results found for: %s", msg.query)
@@ -258,10 +277,18 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ei, ok := m.emailList.SelectedItem().(emailItem); ok {
 			return m, archiveEmailCmd(m.client, ei.email.ID)
 		}
-
 	case key.Matches(msg, keys.Refresh):
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)))
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults)))
+
+	case key.Matches(msg, keys.ToggleUnreadFilter):
+		m.unreadOnly = !m.unreadOnly
+		m.currentPage = 1
+		m.pageHistory = nil
+		m.pageToken = ""
+		m.currentToken = ""
+		m.state = stateLoading
+		return m, tea.Batch(m.spinner.Tick, fetchInbox(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults)))
 
 	case key.Matches(msg, keys.NextPage):
 		if m.pageToken == "" {
@@ -272,7 +299,7 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentToken = m.pageToken
 		m.currentPage++
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.config.InboxQuery, int64(m.config.MaxResults), m.pageToken))
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults), m.pageToken))
 
 	case key.Matches(msg, keys.PrevPage):
 		if len(m.pageHistory) == 0 {
@@ -283,7 +310,8 @@ func (m Model) updateInbox(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentToken = last
 		m.currentPage--
 		m.state = stateLoading
-		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.config.InboxQuery, int64(m.config.MaxResults), last))
+		return m, tea.Batch(m.spinner.Tick, fetchNextPageCmd(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults), last))
+
 	}
 
 	var cmd tea.Cmd
@@ -539,17 +567,24 @@ func (m Model) updateLabels(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---------- sub-handlers ----------
 
 // inboxTitle renders the inbox list title with an unread count when nonzero.
-func inboxTitle(emails []api.Email) string {
+// When unreadOnly is true, a "(unread only)" suffix is appended.
+func inboxTitle(emails []api.Email, unreadOnly bool) string {
 	unread := 0
 	for _, e := range emails {
 		if e.IsUnread {
 			unread++
 		}
 	}
+	var title string
 	if unread == 0 {
-		return "Inbox"
+		title = "Inbox"
+	} else {
+		title = fmt.Sprintf("Inbox (%d unread)", unread)
 	}
-	return fmt.Sprintf("Inbox (%d unread)", unread)
+	if unreadOnly {
+		title += " — unread only"
+	}
+	return title
 }
 
 // removeListedEmail drops an email from the list (after delete/archive) and

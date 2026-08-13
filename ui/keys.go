@@ -15,6 +15,7 @@ type keyMap struct {
 	Search             key.Binding
 	Labels             key.Binding
 	ToggleRead         key.Binding
+	ToggleUnreadFilter key.Binding
 	Quit               key.Binding
 	Send               key.Binding
 	NextInput          key.Binding
@@ -32,11 +33,11 @@ type keyMap struct {
 func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.ShowHelp, k.Compose, k.Search, k.Labels, k.Quit}
 }
-
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Compose, k.Reply, k.Search, k.Labels},
 		{k.Delete, k.Archive, k.ToggleRead, k.Refresh},
+		{k.ToggleUnreadFilter},
 		{k.Back, k.Quit},
 		{k.Send, k.NextInput, k.PrevInput},
 		{k.AddAttachment, k.RemoveAttachment, k.DownloadAttachment},
@@ -56,6 +57,7 @@ var keys = keyMap{
 	Search:             key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	Labels:             key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "labels")),
 	ToggleRead:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mark read/unread")),
+	ToggleUnreadFilter: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "all/unread only")),
 	Quit:               key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	Send:               key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "send")),
 	NextInput:          key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next field")),

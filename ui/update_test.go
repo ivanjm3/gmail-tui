@@ -7,6 +7,7 @@ import (
 
 	"github.com/rdx40/gmail-tui/api"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -290,6 +291,7 @@ type MockClient struct {
 	pageEmails       []api.Email
 	pageNextToken    string
 	pageErr          error
+	lastQuery        string
 	cacheSize        int
 	hasSendScope     bool
 	lastSentSubject  string
@@ -304,7 +306,8 @@ func (m *MockClient) FetchInbox(string, int64) ([]api.Email, error) {
 	return m.inboxEmails, m.inboxErr
 }
 
-func (m *MockClient) FetchInboxPage(string, int64, string) ([]api.Email, string, error) {
+func (m *MockClient) FetchInboxPage(query string, _ int64, _ string) ([]api.Email, string, error) {
+	m.lastQuery = query
 	return m.pageEmails, m.pageNextToken, m.pageErr
 }
 
@@ -482,11 +485,218 @@ func TestReadToggleUpdatesCurrentEmail(t *testing.T) {
 	}
 }
 
+func TestReadToggleUnreadOnlyRemovesReadItem(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(&MockClient{})
+	model.state = stateInbox
+	model.unreadOnly = true
+	model.totalFetched = 2
+	model.emailList.SetItems(emailsToItems([]api.Email{
+		{ID: "a", IsUnread: true},
+		{ID: "b", IsUnread: true},
+	}))
+
+	// Mark "a" as read: it must leave the unread-only list.
+	updated, _ := model.Update(readToggledMsg{id: "a", isUnread: false})
+	m := updated.(Model)
+
+	if m.totalFetched != 1 {
+		t.Fatalf("totalFetched = %d, want 1", m.totalFetched)
+	}
+	ids := listEmailIDs(m.emailList.Items())
+	if len(ids) != 1 || ids[0] != "b" {
+		t.Fatalf("list items = %v, want [b]", ids)
+	}
+	if strings.Contains(m.emailList.Title, "2 unread") {
+		t.Fatalf("title = %q, should not show 2 unread", m.emailList.Title)
+	}
+}
+
+func TestReadToggleUnreadOnlyKeepsUnreadItem(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(&MockClient{})
+	model.state = stateInbox
+	model.unreadOnly = true
+	model.totalFetched = 1
+	model.emailList.SetItems(emailsToItems([]api.Email{{ID: "a", IsUnread: false}}))
+
+	// Mark "a" as unread: it stays in the list (now matches the filter).
+	updated, _ := model.Update(readToggledMsg{id: "a", isUnread: true})
+	m := updated.(Model)
+
+	if m.totalFetched != 1 {
+		t.Fatalf("totalFetched = %d, want 1", m.totalFetched)
+	}
+	ids := listEmailIDs(m.emailList.Items())
+	if len(ids) != 1 || ids[0] != "a" {
+		t.Fatalf("list items = %v, want [a]", ids)
+	}
+}
+
+func TestReadToggleAllModeUpdatesInPlace(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(&MockClient{})
+	model.state = stateInbox
+	model.unreadOnly = false
+	model.totalFetched = 1
+	model.emailList.SetItems(emailsToItems([]api.Email{{ID: "a", IsUnread: true}}))
+
+	// Mark "a" as read in all-messages mode: item stays, IsUnread flips.
+	updated, _ := model.Update(readToggledMsg{id: "a", isUnread: false})
+	m := updated.(Model)
+
+	if m.totalFetched != 1 {
+		t.Fatalf("totalFetched = %d, want 1", m.totalFetched)
+	}
+	ids := listEmailIDs(m.emailList.Items())
+	if len(ids) != 1 || ids[0] != "a" {
+		t.Fatalf("list items = %v, want [a]", ids)
+	}
+}
+
+func TestReadToggleSearchResultsNotAffectedByUnreadOnly(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(&MockClient{})
+	model.state = stateInbox
+	model.unreadOnly = true
+	model.listIsInbox = false // simulates Search/Label results in stateInbox
+	model.totalFetched = 1
+	model.emailList.SetItems(emailsToItems([]api.Email{{ID: "a", IsUnread: true}}))
+	model.emailList.Title = "Search: foo"
+
+	// Mark "a" as read: unread-only filter must NOT remove it from search
+	// results, and the title must stay "Search: foo".
+	updated, _ := model.Update(readToggledMsg{id: "a", isUnread: false})
+	m := updated.(Model)
+
+	if m.totalFetched != 1 {
+		t.Fatalf("totalFetched = %d, want 1 (search result must not be removed)", m.totalFetched)
+	}
+	ids := listEmailIDs(m.emailList.Items())
+	if len(ids) != 1 || ids[0] != "a" {
+		t.Fatalf("list items = %v, want [a]", ids)
+	}
+	if m.emailList.Title != "Search: foo" {
+		t.Fatalf("title = %q, want %q", m.emailList.Title, "Search: foo")
+	}
+}
+
+func TestRefreshDoesNotToggleUnreadOnly(t *testing.T) {
+	t.Parallel()
+
+	mc := &MockClient{pageEmails: []api.Email{{ID: "1"}}}
+
+	// unreadOnly=false: R must fetch without flipping the filter.
+	model := newTestModel(mc)
+	model.state = stateInbox
+	model.unreadOnly = false
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m := updated.(Model)
+	if m.unreadOnly {
+		t.Fatal("R flipped unreadOnly to true; refresh must not toggle")
+	}
+	if m.state != stateLoading {
+		t.Fatalf("state = %v, want stateLoading", m.state)
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.BatchMsg); !ok {
+		t.Fatalf("expected tea.BatchMsg from refresh, got %T", msg)
+	}
+
+	// unreadOnly=true: R must fetch and keep the filter on.
+	model2 := newTestModel(mc)
+	model2.state = stateInbox
+	model2.unreadOnly = true
+
+	updated2, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m2 := updated2.(Model)
+	if !m2.unreadOnly {
+		t.Fatal("R flipped unreadOnly to false; refresh must not toggle")
+	}
+}
+
+// listEmailIDs returns the email IDs backing the list items, for assertions.
+func listEmailIDs(items []list.Item) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if ei, ok := item.(emailItem); ok {
+			ids = append(ids, ei.email.ID)
+		}
+	}
+	return ids
+}
+
 func TestTruncateMultibyteSafe(t *testing.T) {
 	t.Parallel()
 
 	got := truncate("héllo wörld émails über", 10)
 	if !strings.HasSuffix(got, "...") || len([]rune(got)) != 10 {
 		t.Fatalf("truncate = %q, want 10 runes ending in ...", got)
+	}
+}
+
+func TestToggleUnreadFilter(t *testing.T) {
+	t.Parallel()
+
+	mc := &MockClient{pageEmails: []api.Email{{ID: "1", IsUnread: true}}}
+	model := newTestModel(mc)
+	model.state = stateInbox
+
+	// Press "u": flips to unread-only and starts a loading fetch.
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m := updated.(Model)
+	if !m.unreadOnly {
+		t.Fatal("unreadOnly should be true after toggle")
+	}
+	if m.state != stateLoading {
+		t.Fatalf("state = %v, want stateLoading", m.state)
+	}
+	if m.currentPage != 1 || m.pageToken != "" || len(m.pageHistory) != 0 {
+		t.Fatalf("pagination not reset: page=%d token=%q history=%v", m.currentPage, m.pageToken, m.pageHistory)
+	}
+
+	// The fetch command must query with is:unread appended.
+	// tea.Batch wraps the spinner tick and the fetch; find the inbox load.
+	var loadMsg inboxLoadedMsg
+	found := false
+	switch msg := cmd().(type) {
+	case tea.BatchMsg:
+		for _, c := range msg {
+			if c == nil {
+				continue
+			}
+			if lm, ok := c().(inboxLoadedMsg); ok {
+				loadMsg, found = lm, true
+				break
+			}
+		}
+	case inboxLoadedMsg:
+		loadMsg, found = msg, true
+	}
+	if !found {
+		t.Fatal("expected inboxLoadedMsg from batched commands")
+	}
+	if !strings.Contains(mc.lastQuery, "is:unread") {
+		t.Fatalf("query = %q, want it to contain is:unread", mc.lastQuery)
+	}
+	_ = loadMsg
+
+	// Loaded title reflects the unread-only filter.
+	updated, _ = m.Update(inboxLoadedMsg{emails: mc.pageEmails})
+	m = updated.(Model)
+	if !strings.Contains(m.emailList.Title, "unread only") {
+		t.Fatalf("title = %q, want unread-only suffix", m.emailList.Title)
+	}
+
+	// Press "u" again: flips back to all messages.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	m = updated.(Model)
+	if m.unreadOnly {
+		t.Fatal("unreadOnly should be false after second toggle")
 	}
 }

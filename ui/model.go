@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"strings"
 
 	"github.com/rdx40/gmail-tui/api"
 
@@ -133,7 +134,9 @@ type Model struct {
 	height int
 
 	// Inbox
-	emailList list.Model
+	emailList   list.Model
+	unreadOnly  bool // true: filter inbox to unread only
+	listIsInbox bool // true: emailList shows the inbox; false: search/label results
 
 	// Pagination
 	pageToken    string   // token that fetches the NEXT page ("" = no more)
@@ -237,6 +240,7 @@ func New(client api.ClientInterface, cfg *api.Config) Model {
 		labelList:   ll,
 		attachInput: newTextInput("Path to attachment...", 300),
 		currentPage: 1,
+		listIsInbox: true,
 		noStyle:     noStyle,
 	}
 }
@@ -245,12 +249,22 @@ func New(client api.ClientInterface, cfg *api.Config) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		fetchInbox(m.client, m.config.InboxQuery, int64(m.config.MaxResults)),
+		fetchInbox(m.client, m.effectiveInboxQuery(), int64(m.config.MaxResults)),
 		fetchUserProfileCmd(m.client),
 	)
 }
 
 // ---------- helpers ----------
+
+// effectiveInboxQuery returns the configured inbox query, narrowed to unread
+// messages when the unread-only filter is active.
+func (m Model) effectiveInboxQuery() string {
+	q := m.config.InboxQuery
+	if m.unreadOnly {
+		q = strings.TrimSpace(q) + " is:unread"
+	}
+	return q
+}
 
 func newTextInput(placeholder string, charLimit int) textinput.Model {
 	ti := textinput.New()
@@ -275,6 +289,17 @@ func emailsToItems(emails []api.Email) []list.Item {
 		items[i] = emailItem{email: e}
 	}
 	return items
+}
+
+// listEmails extracts the emails backing the current list items.
+func listEmails(items []list.Item) []api.Email {
+	emails := make([]api.Email, 0, len(items))
+	for _, item := range items {
+		if ei, ok := item.(emailItem); ok {
+			emails = append(emails, ei.email)
+		}
+	}
+	return emails
 }
 
 // labelsToItems converts a slice of labels to list items.
