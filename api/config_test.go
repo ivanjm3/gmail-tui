@@ -24,6 +24,14 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultInboxQueryIncludesEveryInboxCategory(t *testing.T) {
+	t.Parallel()
+
+	if got := defaultConfig().InboxQuery; got != "in:inbox" {
+		t.Fatalf("default InboxQuery = %q, want %q", got, "in:inbox")
+	}
+}
+
 func TestLoadConfigTOMLOverride(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)
@@ -118,6 +126,18 @@ func TestConfigValidateClampsRanges(t *testing.T) {
 		if !strings.Contains(logs.String(), field) {
 			t.Fatalf("expected warning for %s in %q", field, logs.String())
 		}
+	}
+}
+
+func TestConfigValidateEmptyInboxQueryUsesEveryInboxCategory(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultConfig()
+	cfg.InboxQuery = "  "
+	cfg.validate()
+
+	if cfg.InboxQuery != "in:inbox" {
+		t.Fatalf("InboxQuery = %q, want %q", cfg.InboxQuery, "in:inbox")
 	}
 }
 

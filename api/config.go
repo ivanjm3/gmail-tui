@@ -19,7 +19,7 @@ type Config struct {
 	MaxConcurrent    int    `toml:"max_concurrent"`     // default: 5, range [1,20]
 	CacheMaxSize     int    `toml:"cache_max_size"`     // default: 500
 	LogLevel         string `toml:"log_level"`          // default: "INFO"
-	InboxQuery       string `toml:"inbox_query"`        // default: "in:inbox category:primary"
+	InboxQuery       string `toml:"inbox_query"`        // default: "in:inbox"
 	CredentialsPath  string `toml:"-"`                  // from env GMAIL_TUI_CREDENTIALS
 }
 
@@ -32,7 +32,7 @@ func defaultConfig() *Config {
 		MaxConcurrent:    5,
 		CacheMaxSize:     500,
 		LogLevel:         "INFO",
-		InboxQuery:       "in:inbox category:primary",
+		InboxQuery:       "in:inbox",
 	}
 }
 
@@ -139,7 +139,7 @@ func (c *Config) validate() {
 		c.SearchMaxResults = clamp(c.SearchMaxResults, 1, 500)
 	}
 	if strings.TrimSpace(c.InboxQuery) == "" {
-		c.InboxQuery = "in:inbox category:primary"
+		c.InboxQuery = "in:inbox"
 	}
 	if c.CacheMaxSize < 10 || c.CacheMaxSize > 10000 {
 		slog.Warn("cache_max_size out of range [10,10000], clamping",
